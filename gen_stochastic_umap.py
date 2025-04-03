@@ -16,9 +16,10 @@ import numpy as np
 from cuml import UMAP  # type: ignore
 from tqdm import tqdm
 
+from data_gen import get_matrix_name
+
 # Local imports
-from channel_gen_funcs import SionnaChannelGenerator
-from test_05_utils import get_matrix_name
+from sionna_ch_gen import SionnaChannelGenerator
 
 SUBCARRIERS_PER_PRB = 12  # Hz
 

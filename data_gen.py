@@ -1,0 +1,242 @@
+"""Core data generation and preparation functions for channel model comparison.
+
+This module provides functions for loading, preparing, and analyzing channel data
+from both stochastic and ray tracing models. It includes utilities for data
+configuration, matrix loading, outlier detection, and data preparation.
+"""
+
+import os
+from dataclasses import dataclass
+from typing import Dict, List, Tuple
+
+import deepmimo as dm  # type: ignore
+import numpy as np
+
+# Models that are stochastic are ray tracing scenarios
+STOCHASTIC_MODELS = ['CDL-A', 'CDL-B', 'CDL-C', 'CDL-D', 'CDL-E', 
+                     'TDL-A', 'TDL-B', 'TDL-C', 'Rayleigh', 'UMa', 'UMi']
+RT_MODELS = ['asu_campus_3p5', 'city_0_newyork_3p5', 'city_1_losangeles_3p5',
+            'city_2_chicago_3p5', 'city_3_houston_3p5', 'city_4_phoenix_3p5',
+            'city_5_philadelphia_3p5', 'city_6_miami_3p5', 'city_7_sandiego_3p5',
+            'city_8_dallas_3p5', 'city_9_sanfrancisco_3p5', 'city_10_austin_3p5',
+            'city_11_santaclara_3p5', 'city_12_fortworth_3p5', 'city_13_columbus_3p5',
+            'city_14_charlotte_3p5', 'city_15_indianapolis_3p5', 'city_16_sanfrancisco_3p5',
+            'city_17_seattle_3p5', 'city_18_denver_3p5', 'city_19_oklahoma_3p5',]
+
+@dataclass
+class DataConfig:
+    """Configuration for data generation"""
+    n_prbs: int = 200
+    n_tx: int = 10
+    n_rx: int = 1
+    n_samples: int = 10_000
+    data_folder: str = 'stochastic_data'
+    relevant_mats: List[str] = None
+    
+    def __post_init__(self):
+        """Initialize default values for relevant_mats if not provided."""
+        if self.relevant_mats is None:
+            self.relevant_mats = ['aoa_az', 'aoa_el', 'aod_az', 'aod_el', 
+                                'power', 'phase', 'delay', 'rx_pos', 'tx_pos']
+
+def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.ndarray]:
+    """
+    Load data matrices for specified models.
+    
+    Args:
+        models: List of model names to load
+        config: DataConfig object with configuration parameters
+        
+    Returns:
+        Dictionary mapping model names to their data matrices
+    """
+    data_matrices = {}
+    load_params = dict(tx_sets=[1], rx_sets=[0], matrices=config.relevant_mats)
+    
+    for model in models:
+        if model in STOCHASTIC_MODELS:
+            filename = get_matrix_name(model, config.n_samples, config.n_prbs, config.n_tx, config.n_rx)
+            print(f"Loading {filename}")
+            data_matrices[model] = np.load(os.path.join(config.data_folder, filename))
+        else:
+            dataset = dm.load(model, **load_params)
+            
+            ch_params = dm.ChannelGenParameters()
+            ch_params.ofdm.bandwidth = 15e3 * config.n_prbs * 12
+            ch_params.ofdm.num_subcarriers = config.n_prbs * 12
+            ch_params.ofdm.selected_subcarriers = np.arange(config.n_prbs * 12)
+            ch_params.bs_antenna.shape = np.array([config.n_tx, 1])
+            ch_params.ue_antenna.rotation = np.array([0, 0, 0])
+
+            # Reduce dataset size with uniform sampling
+            steps = [3,3] if dataset.n_ue > 100_000 else ([2,2] if dataset.n_ue > 10_000 else [1,1])
+            dataset_u = dataset.subset(dataset.get_uniform_idxs(steps))
+
+            # Consider only active users for redundancy reduction
+            dataset_t = dataset.subset(dataset_u.get_active_idxs())
+
+            data_matrices[model] = dataset_t.compute_channels(ch_params)
+            
+    return data_matrices
+
+def prepare_data_for_analysis(data_matrices: Dict[str, np.ndarray], 
+                            models: List[str],
+                            x_points: int = 5000,
+                            y_subcarriers: int = None,
+                            release_memory: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Prepare data for analysis by concatenating matrices and creating labels.
+    
+    Args:
+        data_matrices: Dictionary of data matrices
+        models: List of model names
+        x_points: Number of points to take from each matrix
+        y_subcarriers: Number of subcarriers to use
+        release_memory: Whether to release memory after processing
+        
+    Returns:
+        Tuple of (data, labels) where data is the concatenated matrix and labels are the model indices
+    """
+    if y_subcarriers is None:
+        y_subcarriers = data_matrices[models[0]].shape[-1]
+        
+    labels = []
+    data = []
+    
+    for i, model in enumerate(models):
+        available_points = data_matrices[model].shape[0]
+        all_idxs = np.arange(available_points)
+        random_idxs = np.random.choice(all_idxs, size=min(available_points, x_points), replace=False)
+        data.append(data_matrices[model][random_idxs, :, :, :y_subcarriers].reshape(len(random_idxs), -1))
+        n_points = len(data[-1])
+        labels.append(np.ones(n_points) * i)
+        print(f"Loaded {n_points} points for {model}")
+
+        if release_memory:
+            del data_matrices[model]
+
+    # Concatenate all data
+    data = np.concatenate(data, axis=0)
+    labels = np.concatenate(labels, axis=0)
+
+    # Concatenate real and imaginary parts
+    data_real = np.concatenate([np.real(data), np.imag(data)], axis=1)
+
+    if release_memory:
+        del data
+
+    return data_real, labels
+
+def detect_outliers(data: np.ndarray, threshold: float = 3.0) -> np.ndarray:
+    """
+    Detect outliers in the data using z-score method.
+    
+    Args:
+        data: Input data matrix
+        threshold: Z-score threshold for outlier detection
+        
+    Returns:
+        Boolean array indicating which samples are outliers
+    """
+    z_scores = np.abs((data - np.mean(data, axis=0)) / np.std(data, axis=0))
+    return np.any(z_scores > threshold, axis=1)
+
+def remove_outliers(data: np.ndarray, labels: np.ndarray, threshold: float = 3.0) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Remove outliers from the data and corresponding labels.
+    
+    Args:
+        data: Input data matrix
+        labels: Corresponding labels
+        threshold: Z-score threshold for outlier detection
+        
+    Returns:
+        Tuple of (cleaned_data, cleaned_labels)
+    """
+    outlier_mask = detect_outliers(data, threshold)
+    return data[~outlier_mask], labels[~outlier_mask]
+
+def get_matrix_name(ch_model: str, n_samples: int, n_prb: int, n_tx: int = 1, n_rx: int = 1) -> str:
+    """
+    Generate standardized filename for data matrices.
+    
+    Args:
+        ch_model: Channel model name
+        n_samples: Number of samples
+        n_prb: Number of PRBs
+        n_tx: Number of TX antennas
+        n_rx: Number of RX antennas
+        
+    Returns:
+        Standardized filename string
+    """
+    if n_tx == 1 and n_rx == 1:
+        return f'data_{ch_model}_samples_{n_samples}_n-prb_{n_prb}.npy'
+    else:
+        return f'data_{ch_model}_samples_{n_samples}_n-prb_{n_prb}_n-tx_{n_tx}_n-rx_{n_rx}.npy'
+
+def find_class_outliers(embeddings: np.ndarray, labels: np.ndarray, std_threshold: float = 10) -> dict:
+    """
+    Find outliers for each class that are more than std_threshold standard deviations from the mean.
+    
+    Args:
+        embeddings: UMAP embeddings of shape (n_samples, 2)
+        labels: Array of labels for each point
+        std_threshold: Number of standard deviations for outlier detection
+        
+    Returns:
+        Dictionary mapping class indices to arrays of outlier indices
+    """
+    outliers_by_class = {}
+    unique_labels = np.unique(labels)
+    
+    for label in unique_labels:
+        # Get points for this class
+        class_mask = labels == label
+        class_points = embeddings[class_mask]
+        
+        # Calculate mean and standard deviation for this class
+        mean = np.mean(class_points, axis=0)
+        std = np.std(class_points, axis=0)
+        
+        # Calculate Mahalanobis distance for each point
+        distances = np.sqrt(np.sum(((class_points - mean) / std) ** 2, axis=1))
+        
+        # Find outliers
+        class_outlier_mask = distances > std_threshold
+        class_outlier_indices = np.where(class_mask)[0][class_outlier_mask]
+        
+        if len(class_outlier_indices) > 0:
+            outliers_by_class[int(label)] = class_outlier_indices
+    
+    return outliers_by_class
+
+def get_mask_no_outliers(embedding: np.ndarray, outliers_dict: dict) -> np.ndarray:
+    """
+    Get a mask to remove outliers from the data.
+    
+    Args:
+        embedding: UMAP embeddings
+        outliers_dict: Dictionary of outliers by class
+        
+    Returns:
+        Boolean mask indicating which points to keep
+    """
+    keep_mask = np.ones(len(embedding), dtype=bool)
+    for class_idx, outlier_indices in outliers_dict.items():
+        curr_mask = ~np.isin(np.arange(len(embedding)), outlier_indices)
+        keep_mask &= curr_mask
+    return keep_mask
+
+def print_outliers(outliers: dict, models: list) -> None:
+    """
+    Print information about outliers found in each class.
+    
+    Args:
+        outliers: Dictionary of outliers by class
+        models: List of model names
+    """
+    print("\nOutlier indices by class:")
+    for class_idx, outlier_indices in outliers.items():
+        print(f"Class {class_idx} ({models[class_idx]}): {len(outlier_indices)} outliers")
+        print(f"  Indices: {outlier_indices}") 
