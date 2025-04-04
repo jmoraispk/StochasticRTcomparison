@@ -281,7 +281,8 @@ def plot_test_matrix(results_matrix: np.ndarray, models: list, save_path: str = 
     for i in range(len(models)):
         for j in range(len(models)):
             plt.text(j, i, f'{results_matrix_db[i, j]:.1f}',
-                    ha='center', va='center', color='white' if results_matrix_db[i, j] > np.mean(results_matrix_db) else 'black')
+                    ha='center', va='center', color='white' 
+                    if results_matrix_db[i, j] > np.mean(results_matrix_db) else 'black')
     
     plt.xticks(np.arange(len(models)), models, rotation=45)
     plt.yticks(np.arange(len(models)), models)

@@ -11,6 +11,11 @@ from typing import Dict, List, Tuple
 
 import deepmimo as dm  # type: ignore
 import numpy as np
+from tqdm import tqdm
+from sionna_ch_gen import SionnaChannelGenerator
+
+# Constants
+SUBCARRIERS_PER_PRB = 12  # Hz
 
 # Models that are stochastic are ray tracing scenarios
 STOCHASTIC_MODELS = ['CDL-A', 'CDL-B', 'CDL-C', 'CDL-D', 'CDL-E', 
@@ -24,28 +29,48 @@ RT_MODELS = ['asu_campus_3p5', 'city_0_newyork_3p5', 'city_1_losangeles_3p5',
             'city_17_seattle_3p5', 'city_18_denver_3p5', 'city_19_oklahoma_3p5',]
 
 @dataclass
+class RTConfig:
+    """Configuration for a single ray tracing scenario"""
+    uniform_steps: List[int] = None  # Steps for uniform sampling
+    active_only: bool = True  # Whether to use only active users
+
+@dataclass
 class DataConfig:
     """Configuration for data generation"""
-    n_prbs: int = 200
+    n_prbs: int = 50
     n_tx: int = 10
     n_rx: int = 1
     n_samples: int = 10_000
+    batch_size: int = 10
     data_folder: str = 'stochastic_data'
     relevant_mats: List[str] = None
-    
+    x_points: int = int(1e8)  # Number of points to sample from each matrix
+    plot_points: int = 1000  # Number of points to plot
+    seed: int = 40
+    snr: int = 50
+    freq_selection: np.ndarray = None  # Will be computed in __post_init__
+    rt_uniform_steps: List[int] = None  # Steps for uniform sampling in ray tracing
+
     def __post_init__(self):
-        """Initialize default values for relevant_mats if not provided."""
+        """Initialize derived parameters after instance creation."""
         if self.relevant_mats is None:
             self.relevant_mats = ['aoa_az', 'aoa_el', 'aod_az', 'aod_el', 
                                 'power', 'phase', 'delay', 'rx_pos', 'tx_pos']
+        
+        # Compute frequency selection (one subcarrier per PRB)
+        if self.freq_selection is None:
+            self.freq_selection = np.arange(0, self.n_prbs * SUBCARRIERS_PER_PRB, SUBCARRIERS_PER_PRB)
+            
+        # Default uniform steps based on dataset size
+        if self.rt_uniform_steps is None:
+            self.rt_uniform_steps = [3, 3]  # Default for large datasets
 
 def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.ndarray]:
-    """
-    Load data matrices for specified models.
+    """Load data matrices for specified models.
     
     Args:
         models: List of model names to load
-        config: DataConfig object with configuration parameters
+        config: DataConfig instance with generation parameters
         
     Returns:
         Dictionary mapping model names to their data matrices
@@ -54,77 +79,119 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
     load_params = dict(tx_sets=[1], rx_sets=[0], matrices=config.relevant_mats)
     
     for model in models:
+        print(f"\nProcessing {model}...")
+        
         if model in STOCHASTIC_MODELS:
-            filename = get_matrix_name(model, config.n_samples, config.n_prbs, config.n_tx, config.n_rx)
-            print(f"Loading {filename}")
-            data_matrices[model] = np.load(os.path.join(config.data_folder, filename))
+            print(f"Generating stochastic data for {model}...")
+            ch_gen = SionnaChannelGenerator(config.n_prbs, model, config.batch_size, 
+                                          config.n_rx, config.n_tx, config.seed)
+            ch_data = sample_ch(ch_gen, config.n_prbs, config.n_samples // config.batch_size, 
+                              config.batch_size, config.snr, config.n_rx, config.n_tx)
+            ch_data_t = ch_data[:, :, :, config.freq_selection].astype(np.complex64)
+            data_matrices[model] = ch_data_t
+            print(f"Generated {ch_data_t.shape[0]} samples for {model}")
         else:
+            print(f"Loading ray tracing data for {model}...")
             dataset = dm.load(model, **load_params)
             
+            # Adjust uniform steps based on dataset size
+            steps = config.rt_uniform_steps
+            if steps is None:  # Only use dataset size logic if steps not configured
+                if dataset.n_ue > 100_000:
+                    steps = [3, 3]
+                elif dataset.n_ue > 10_000:
+                    steps = [2, 2]
+                else:
+                    steps = [1, 1]
+            print(f"Using uniform sampling steps {steps} for {dataset.n_ue} UEs")
+            
             ch_params = dm.ChannelGenParameters()
-            ch_params.ofdm.bandwidth = 15e3 * config.n_prbs * 12
-            ch_params.ofdm.num_subcarriers = config.n_prbs * 12
-            ch_params.ofdm.selected_subcarriers = np.arange(config.n_prbs * 12)
+            ch_params.ofdm.bandwidth = 15e3 * config.n_prbs * SUBCARRIERS_PER_PRB
+            ch_params.ofdm.num_subcarriers = config.n_prbs * SUBCARRIERS_PER_PRB
+            ch_params.ofdm.selected_subcarriers = config.freq_selection
             ch_params.bs_antenna.shape = np.array([config.n_tx, 1])
             ch_params.ue_antenna.rotation = np.array([0, 0, 0])
 
             # Reduce dataset size with uniform sampling
-            steps = [3,3] if dataset.n_ue > 100_000 else ([2,2] if dataset.n_ue > 10_000 else [1,1])
             dataset_u = dataset.subset(dataset.get_uniform_idxs(steps))
+            print(f"After uniform sampling: {dataset_u.n_ue} UEs")
 
             # Consider only active users for redundancy reduction
             dataset_t = dataset.subset(dataset_u.get_active_idxs())
+            print(f"After active user filtering: {dataset_t.n_ue} UEs")
 
             data_matrices[model] = dataset_t.compute_channels(ch_params)
+            print(f"Generated {data_matrices[model].shape[0]} samples for {model}")
             
     return data_matrices
 
-def prepare_data_for_analysis(data_matrices: Dict[str, np.ndarray], 
-                            models: List[str],
-                            x_points: int = 5000,
-                            y_subcarriers: int = None,
-                            release_memory: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+def sample_ch(ch_gen, n_prbs: int, n_iter: int = 100, batch_size: int = 10,
+              snr: float = 50, n_rx: int = 1, n_tx: int = 10):
+    """Generate channel samples using the provided channel generator.
+    
+    Args:
+        ch_gen: Channel generator instance
+        n_prbs: Number of PRBs in the UE allocated bandwidth
+        n_iter: Number of iterations to generate samples
+        batch_size: Number of samples per iteration
+        snr: Signal-to-noise ratio in dB
+        n_rx: Number of receive antennas
+        n_tx: Number of transmit antennas
+    
+    Returns:
+        ndarray: Generated channel samples of shape (n_samples, n_rx, n_tx, n_sub)
     """
-    Prepare data for analysis by concatenating matrices and creating labels.
+    n_samples = n_iter * batch_size
+    n_sub = n_prbs * SUBCARRIERS_PER_PRB
+    d = np.zeros((n_iter, batch_size, n_rx, n_tx, n_sub), dtype=complex)
+    
+    print(f'Generating channels for SNR: {snr} dB')
+    for i in (pbar := tqdm(range(n_iter))):
+        _, d[i] = ch_gen.gen_channel_jit(snr)
+        pbar.set_description(f"Iteration {i+1}/{n_iter}")
+    
+    return d.reshape(n_samples, n_rx, n_tx, n_sub)
+
+def prepare_umap_data(data_matrices: dict, model_names: list, x_points: int = 5000, release_memory: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Prepare data matrices for UMAP analysis by sampling and concatenating.
     
     Args:
         data_matrices: Dictionary of data matrices
-        models: List of model names
-        x_points: Number of points to take from each matrix
-        y_subcarriers: Number of subcarriers to use
-        release_memory: Whether to release memory after processing
-        
+        model_names: List of model names
+        x_points: Number of points to sample from each matrix
+        release_memory: Whether to free memory after processing
+    
     Returns:
-        Tuple of (data, labels) where data is the concatenated matrix and labels are the model indices
+        Tuple of (data_real, labels) where data_real is the concatenated real data
+        and labels are the matrix indices
     """
-    if y_subcarriers is None:
-        y_subcarriers = data_matrices[models[0]].shape[-1]
-        
     labels = []
     data = []
     
-    for i, model in enumerate(models):
-        available_points = data_matrices[model].shape[0]
+    for i, model in enumerate(model_names):
+        matrix = data_matrices[model]
+        available_points = matrix.shape[0]
         all_idxs = np.arange(available_points)
         random_idxs = np.random.choice(all_idxs, size=min(available_points, x_points), replace=False)
-        data.append(data_matrices[model][random_idxs, :, :, :y_subcarriers].reshape(len(random_idxs), -1))
+        data.append(matrix[random_idxs].reshape(len(random_idxs), -1))
         n_points = len(data[-1])
         labels.append(np.ones(n_points) * i)
         print(f"Loaded {n_points} points for {model}")
-
+        
         if release_memory:
-            del data_matrices[model]
-
+            del matrix
+    
     # Concatenate all data
     data = np.concatenate(data, axis=0)
     labels = np.concatenate(labels, axis=0)
-
-    # Concatenate real and imaginary parts
+    
+    # Separate real and imaginary parts
     data_real = np.concatenate([np.real(data), np.imag(data)], axis=1)
-
+    
     if release_memory:
         del data
-
+    
     return data_real, labels
 
 def detect_outliers(data: np.ndarray, threshold: float = 3.0) -> np.ndarray:
@@ -223,7 +290,7 @@ def get_mask_no_outliers(embedding: np.ndarray, outliers_dict: dict) -> np.ndarr
         Boolean mask indicating which points to keep
     """
     keep_mask = np.ones(len(embedding), dtype=bool)
-    for class_idx, outlier_indices in outliers_dict.items():
+    for _, outlier_indices in outliers_dict.items():
         curr_mask = ~np.isin(np.arange(len(embedding)), outlier_indices)
         keep_mask &= curr_mask
     return keep_mask

@@ -13,7 +13,10 @@ def plot_umap_embeddings(embeddings: np.ndarray,
                         model_names: list,
                         full_model_list: list = None,
                         plot_points: int = 2000,
-                        add_labels: bool = True) -> None:
+                        add_labels: bool = True,
+                        title: str = None,
+                        xlim: tuple = None,
+                        ylim: tuple = None) -> None:
     """
     Plot UMAP embeddings with model labels and color coding.
     
@@ -24,6 +27,9 @@ def plot_umap_embeddings(embeddings: np.ndarray,
         full_model_list: Complete list of all possible models (for consistent color mapping)
         plot_points: Number of points to plot per model
         add_labels: Whether to add model name labels
+        title: Title for the plot
+        xlim: Tuple of (xmin, xmax) for x-axis limits
+        ylim: Tuple of (ymin, ymax) for y-axis limits
     """
     # If full_model_list is not provided, use model_names as the complete list
     if full_model_list is None:
@@ -116,6 +122,11 @@ def plot_umap_embeddings(embeddings: np.ndarray,
 
     plt.xlabel('UMAP Component 1')
     plt.ylabel('UMAP Component 2')
-    plt.title('UMAP Embeddings')
+    if title:
+        plt.title(title)
+    if xlim:
+        plt.xlim(xlim)
+    if ylim:
+        plt.ylim(ylim)
     plt.grid()
-    plt.show() 
+    # plt.show()  # Remove this line to let caller control when to show 

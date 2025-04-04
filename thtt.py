@@ -4,6 +4,9 @@ This module provides functions for training and testing channel models,
 including cross-testing between different models and visualization of results.
 It supports both stochastic and ray tracing channel models.
 """
+import sys
+
+sys.path.insert(0, '/mnt/c/Users/jmora/Documents/GitHub/StochasticRTcomparison/')
 
 import numpy as np
 import pandas as pd
