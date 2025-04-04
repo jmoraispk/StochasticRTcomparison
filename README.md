@@ -6,23 +6,28 @@ This project compares stochastic channel models with ray tracing models using UM
 
 ```
 ├── data_gen.py                 # Core data generation and preparation
-│   ├── DataConfig              # Configuration class
-│   ├── load_data_matrices()    # Load data for different models
-│   ├── prepare_data_for_analysis()  # Prepare data for analysis
-│   └── outlier detection functions  # Detect and remove outliers
-│
-├── sionna_ch_gen.py            # Sionna-specific channel generation
-│   └── Channel generation functions
+│   ├── DataConfig              # Configuration class for data generation
+│   ├── load_data_matrices()    # Load/generate data for different models
+│   ├── prepare_umap_data()     # Prepare data for UMAP analysis
+│   └── outlier detection       # Functions for detecting and removing outliers
 │
 ├── topology.py                 # UMAP visualization and analysis
-│   ├── plot_umap_embeddings()  # Visualize UMAP embeddings
-│   └── main()                  # Example usage
+│   ├── Data loading           # Load and prepare data using DataConfig
+│   ├── UMAP computation       # Compute UMAP embeddings
+│   ├── Visualization          # Plot embeddings with/without outliers
+│   └── Partial UMAP fitting   # Fit UMAP on one model, transform another
 │
-└── thtt.py                     # Training and testing
-    ├── train_models()          # Train models for each area
-    ├── cross_test_models()     # Cross-test models across datasets
-    ├── plot_training_results() # Plot training progress
-    └── plot_test_matrix()      # Visualize test results
+├── topology_utils.py          # Visualization utilities
+│   └── plot_umap_embeddings() # Function for plotting UMAP embeddings
+│
+├── thtt.py                    # Training and testing
+│   ├── Data preparation       # Prepare data for training
+│   ├── Model training         # Train models on different datasets
+│   └── Cross-testing         # Test models across different datasets
+│
+└── thtt_utils.py             # Training utilities
+    ├── convert_channel_angle_delay()  # Convert channel data format
+    └── train_val_test_split()        # Split data for training
 ```
 
 ## Data Flow
@@ -30,23 +35,29 @@ This project compares stochastic channel models with ray tracing models using UM
 ```
 data_gen.py ──────┐
                   ├─> topology.py (UMAP visualization)
-sionna_ch_gen.py ─┘
+                  │      └─> topology_utils.py (plotting)
+                  │
                   └─> thtt.py (Training and testing)
+                         └─> thtt_utils.py (data preparation)
 ```
 
 ## Dependencies
 
 - numpy
-- scipy
 - matplotlib
-- pandas
-- umap-learn
-- sionna
-- deepmimo
-- dataset_utils
+- cuml (for UMAP)
+- deepmimo (for ray tracing data)
+- sionna (for stochastic channel models)
 
 ## Usage
 
-1. Generate data using `data_gen.py` and `sionna_ch_gen.py`
-2. Visualize data topology using `topology.py`
-3. Train and test models using `thtt.py`
+1. Configure data generation parameters in `data_gen.py`
+2. Generate/load data using `load_data_matrices()`
+3. Visualize data topology using `topology.py`:
+   - Compute UMAP embeddings
+   - Visualize with/without outliers
+   - Perform partial UMAP fitting
+4. Train and test models using `thtt.py`:
+   - Prepare data using utilities from `thtt_utils.py`
+   - Train models on different datasets
+   - Cross-test models across datasets
