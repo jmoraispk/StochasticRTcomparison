@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scipy.io
+from tqdm import tqdm
 
 from csinet_train_test import test_from_csv, train_model_loop
 
@@ -291,4 +292,81 @@ def plot_test_matrix(results_matrix: np.ndarray, models: list, save_path: str = 
     
     if save_path:
         plt.savefig(save_path, bbox_inches='tight', dpi=300)
-    plt.show() 
+    plt.show()
+
+def train_with_percentages(model_name: str, data_matrices: dict, dataset_main_folder: str,
+                         percentages: list, uma_model_path: str = None, load_model: bool = False,
+                         epochs: int = 60) -> tuple:
+    """Train model with different percentages of data.
+    
+    Args:
+        model_name: Name of the model to train
+        data_matrices: Dictionary of data matrices
+        dataset_main_folder: Base folder for datasets
+        percentages: List of percentages to use for training
+        uma_model_path: Path to pre-trained UMa model (if load_model is True)
+        load_model: Whether to load pre-trained model
+        epochs: Number of training epochs
+        
+    Returns:
+        Tuple of (test_nmse_list, model_name)
+    """
+    # Get data for the model
+    model_data = data_matrices[model_name]
+    n_samp = model_data.shape[0]
+    
+    # Set random seed for reproducibility
+    np.random.seed(42)
+    
+    # Generate random indices for the full dataset
+    all_indices = np.random.permutation(n_samp)
+    
+    # Create nested sets of indices
+    nested_indices = {}
+    for p in percentages:
+        n_samples = int(n_samp * p)
+        nested_indices[p] = all_indices[:n_samples]
+    
+    # Print the sizes to verify
+    for p, indices in nested_indices.items():
+        print(f"{p*100}% of data: {len(indices)} samples")
+    
+    # Split remaining data for validation and testing
+    val_idxs = all_indices[int(n_samp*.8):int(n_samp*.9)]
+    test_idxs = all_indices[int(n_samp*.9):]
+    
+    # Generate CSV indices for each portion
+    dataset_folder = os.path.join(dataset_main_folder, f'model_{model_name}')
+    os.makedirs(dataset_folder, exist_ok=True)
+    
+    for p in percentages:
+        df1 = pd.DataFrame(nested_indices[p], columns=["data_idx"])
+        df1.to_csv(os.path.join(dataset_folder, f'train_data_idx_v2_{p*100}.csv'), index=False)
+    
+    # Save val and test indices
+    df2 = pd.DataFrame(val_idxs, columns=["data_idx"])
+    df3 = pd.DataFrame(test_idxs, columns=["data_idx"])
+    df2.to_csv(os.path.join(dataset_folder, 'val_data_idx_v2.csv'), index=False)
+    df3.to_csv(os.path.join(dataset_folder, 'test_data_idx_v2.csv'), index=False)
+    
+    # Train with different percentages
+    test_nmse_list = []
+    
+    for p in tqdm(percentages, desc=f"Training {model_name} with different percentages"):
+        # Train model
+        res = train_models(
+            [model_name], 
+            {model_name: data_matrices[model_name]},
+            dataset_main_folder,
+            train_csv=f'train_data_idx_v2_{p*100}.csv',
+            val_csv='val_data_idx_v2.csv',
+            test_csv='test_data_idx_v2.csv',
+            load_model=load_model,
+            model_path_load=uma_model_path if load_model else None,
+            num_epoch=epochs
+        )
+        
+        test_nmse_list.append(10 * np.log10(res[0]['test_nmse']))
+        print(f'Data [{p*100}%]: {model_name} {test_nmse_list[-1]:.1f}dB')
+    
+    return test_nmse_list, model_name 
