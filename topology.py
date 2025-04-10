@@ -19,12 +19,19 @@ from topology_utils import plot_umap_embeddings
 
 #%% Parameters
 # Channel generation parameters
-cfg = DataConfig()
-cfg.n_samples = 10_000
-cfg.n_prbs = 50  # Number of PRBs to generate channels
-cfg.n_rx = 1
-cfg.n_tx = 32
-cfg.snr = 50
+cfg = DataConfig(
+    n_samples = 100_000,  # For Stochastic models
+    n_prbs = 20,
+    n_rx = 1,
+    n_tx = 64,
+    snr = 50
+)
+
+# UMAP parameters
+cfg.x_points = cfg.n_samples #int(2e5)  # Number of points to sample from each dataset (randomly)
+cfg.plot_points = cfg.n_samples #int(2e5)    # Number of points to plot from each dataset (randomly)
+cfg.seed = 42
+cfg.rt_uniform_steps = [1, 1]
 
 # Channel models  : ['Rayleigh', 'CDL-x', 'TDL-x', 'UMa', 'UMi'] 
 # TR 38.901, x is : ["A", "B", "C", "D", "E"] 
@@ -33,15 +40,8 @@ cfg.snr = 50
 ch_models = ['UMa']
 
 # Ray tracing scenarios
-rt_scens = ['asu_campus_3p5']
+rt_scens = ['asu_campus_3p5']  # TODO: careful so [''] is not in list.
 models = rt_scens + ch_models
-
-# UMAP parameters
-cfg.x_points = int(1e4)  # Number of points to sample from each dataset (randomly)
-cfg.plot_points = 1e6    # Number of points to plot from each dataset (randomly)
-cfg.seed = 42
-cfg.rt_uniform_steps = [2, 2]
-
 
 #%% Load and Prepare Data
 # Load and prepare data
@@ -50,8 +50,7 @@ data_real, labels = prepare_umap_data(data_matrices, models, x_points=cfg.x_poin
 
 #%% Compute UMAP Embeddings
 # Compute UMAP embeddings
-seed = 42
-umap_model = UMAP(n_components=2, random_state=seed)
+umap_model = UMAP(n_components=2)#, random_state=cfg.seed)
 
 print("Starting UMAP fit_transform...")
 start_time = time.time()
@@ -60,13 +59,48 @@ umap_time = time.time() - start_time
 print(f"UMAP fit_transform took {umap_time:.2f} seconds")
 
 #%% Visualize Results
-plot_umap_embeddings(umap_embeddings, labels, models, title="UMAP Embeddings (All Data)")
+plot_umap_embeddings(umap_embeddings, labels, models, plot_points=cfg.plot_points,
+                     title="UMAP Embeddings (All Data)")
+
+# plt.xlim((-11, 8))
+# plt.ylim((-7, 7))
+
+#%% Visualize Single Model
+single_model = 'UMa'
+single_model_idx = models.index(single_model)
+model_indices = np.where(labels == single_model_idx)[0]
+
+# Get embeddings and labels for just this model
+single_model_embeddings = umap_embeddings[model_indices]
+single_model_labels = labels[model_indices]
+
+# Plot just this model's embeddings
+plot_umap_embeddings(single_model_embeddings, single_model_labels, [single_model],
+                     plot_points=cfg.plot_points,
+                     title=f"UMAP Embeddings ({single_model} Only)",
+                     full_model_list=models)
+
+#%% Visualize Single Model (with other model for keeping the labels behaved)
+
+other_model_idxs = np.where(labels == models.index('asu_campus_3p5'))[0][0]
+model_indices[0] = other_model_idxs
+# Select a single model to visualize + 1 sample of the other models for maintaining the same scale
+
+single_model_embeddings_e = umap_embeddings[model_indices]
+single_model_labels_e = labels[model_indices]
+
+plot_umap_embeddings(single_model_embeddings_e, single_model_labels_e, models,
+                     plot_points=cfg.plot_points,
+                     title=f"UMAP Embeddings ({single_model} Only)")
+plt.xlim((-11, 8))
+plt.ylim((-7, 7))
 
 #%% Visualize Results (without outliers)
-embeddings_clean, labels_clean = remove_outliers(umap_embeddings, labels, threshold=2.0)
+embeddings_clean, labels_clean = remove_outliers(umap_embeddings, labels, threshold=5.0)
 print(f"Removed {len(umap_embeddings) - len(embeddings_clean)} outliers")
 
-plot_umap_embeddings(embeddings_clean, labels_clean, models, title="UMAP Embeddings (No Outliers)")
+plot_umap_embeddings(embeddings_clean, labels_clean, models, plot_points=cfg.plot_points,
+                     title="UMAP Embeddings (No Outliers)")
 
 #%% Partial UMAP Fitting
 # Choose which models to fit and transform based on names
@@ -87,7 +121,7 @@ labels_fit = labels[fit_indices]
 labels_transform = labels[transform_indices]
 
 # Fit UMAP on first model
-umap_partial = UMAP(n_components=2, random_state=seed)
+umap_partial = UMAP(n_components=2, random_state=cfg.seed)
 umap_partial.fit(data_fit)
 
 # Transform the second model
