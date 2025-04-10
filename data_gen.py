@@ -120,8 +120,13 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
             dataset_t = dataset.subset(dataset_u.get_active_idxs())
             print(f"After active user filtering: {dataset_t.n_ue} UEs")
 
-            data_matrices[model] = dataset_t.compute_channels(ch_params)
-            print(f"Generated {data_matrices[model].shape[0]} samples for {model}")
+            dataset_t.compute_channels(ch_params)
+            ch_norms = np.sqrt(np.sum(np.abs(dataset_t.channels)**2, axis=(1,2,3), keepdims=True))
+            non_zero_ues = np.where(ch_norms[:,0,0,0] > 0)[0]
+
+            # Normalize by unit norm
+            data_matrices[model] = dataset_t.channels[non_zero_ues] / ch_norms[non_zero_ues]
+            print(f"Generated {data_matrices[model].shape[0]} non-zero samples for {model}")
             
     return data_matrices
 
