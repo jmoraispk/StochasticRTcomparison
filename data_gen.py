@@ -110,6 +110,7 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
             ch_params.ofdm.num_subcarriers = config.n_prbs * SUBCARRIERS_PER_PRB
             ch_params.ofdm.selected_subcarriers = config.freq_selection
             ch_params.bs_antenna.shape = np.array([config.n_tx, 1])
+            ch_params.ue_antenna.shape = np.array([config.n_rx, 1])
             ch_params.ue_antenna.rotation = np.array([0, 0, 0])
 
             # Reduce dataset size with uniform sampling
