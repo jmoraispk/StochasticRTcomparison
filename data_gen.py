@@ -90,7 +90,7 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
             ch_data_t = ch_data[:, :, :, config.freq_selection].astype(np.complex64)
             data_matrices[model] = ch_data_t
             print(f"Generated {ch_data_t.shape[0]} samples for {model}")
-        else:
+        elif model in RT_MODELS:
             print(f"Loading ray tracing data for {model}...")
             dataset = dm.load(model, **load_params)
             
@@ -128,6 +128,8 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
             # Normalize by unit norm
             data_matrices[model] = dataset_t.channels[non_zero_ues] / ch_norms[non_zero_ues]
             print(f"Generated {data_matrices[model].shape[0]} non-zero samples for {model}")
+        else:
+            raise Exception(f'Model {model} not recognized.')
             
     return data_matrices
 
