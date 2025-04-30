@@ -20,7 +20,8 @@ import tensorflow as tf  # type: ignore
 class SionnaChannelGenerator(tf.keras.Model):
     """Generator class for Sionna channels."""
     def __init__(self, num_prbs: int, channel_name: str = 'UMa', batch_size: int = 1, 
-                 n_rx: int = 1, n_tx: int = 1, seed: Optional[int] = None):
+                 n_rx: int = 1, n_tx: int = 1, normalize: bool = True, 
+                 seed: Optional[int] = None):
         """
         Initializor for a Sionna Channel Generator.
 
@@ -36,6 +37,7 @@ class SionnaChannelGenerator(tf.keras.Model):
 
         self.num_prbs = num_prbs
         self.batch_size = batch_size
+        self.normalize = normalize
 
         # parameters for channel modeling
         self.channel_model = channel_name
@@ -72,7 +74,7 @@ class SionnaChannelGenerator(tf.keras.Model):
         self.channel_generator = sionna.channel.GenerateOFDMChannel(
             self.channel,
             self.rg,
-            normalize_channel=True)
+            normalize_channel=self.normalize)
 
         self.awgn = sionna.channel.AWGN()
 

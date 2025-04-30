@@ -47,6 +47,7 @@ class DataConfig:
     x_points: int = int(1e8)  # Number of points to sample from each matrix
     plot_points: int = 1000  # Number of points to plot
     seed: int = 40
+    normalize: bool = True  # Whether to normalize the channels
     snr: int = 50
     freq_selection: np.ndarray = None  # Will be computed in __post_init__
     rt_uniform_steps: List[int] = None  # Steps for uniform sampling in ray tracing
@@ -84,7 +85,8 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
         if model in STOCHASTIC_MODELS:
             print(f"Generating stochastic data for {model}...")
             ch_gen = SionnaChannelGenerator(config.n_prbs, model, config.batch_size, 
-                                          config.n_rx, config.n_tx, config.seed)
+                                          config.n_rx, config.n_tx, 
+                                          config.normalize, config.seed)
             ch_data = sample_ch(ch_gen, config.n_prbs, config.n_samples // config.batch_size, 
                               config.batch_size, config.snr, config.n_rx, config.n_tx)
             ch_data_t = ch_data[:, :, :, config.freq_selection].astype(np.complex64)
@@ -122,11 +124,13 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
             print(f"After active user filtering: {dataset_t.n_ue} UEs")
 
             dataset_t.compute_channels(ch_params)
-            ch_norms = np.sqrt(np.sum(np.abs(dataset_t.channels)**2, axis=(1,2,3), keepdims=True))
-            non_zero_ues = np.where(ch_norms[:,0,0,0] > 0)[0]
-
-            # Normalize by unit norm
-            data_matrices[model] = dataset_t.channels[non_zero_ues] / ch_norms[non_zero_ues]
+            if config.normalize:
+                ch_norms = np.sqrt(np.sum(np.abs(dataset_t.channels)**2, axis=(1,2,3), keepdims=True))
+                non_zero_ues = np.where(ch_norms[:,0,0,0] > 0)[0]
+                # Normalize by unit norm
+                normed_ch = dataset_t.channels[non_zero_ues] / ch_norms[non_zero_ues]
+            
+            data_matrices[model] = normed_ch if config.normalize else dataset_t.channels[non_zero_ues]
             print(f"Generated {data_matrices[model].shape[0]} non-zero samples for {model}")
         else:
             raise Exception(f'Model {model} not recognized.')
