@@ -56,9 +56,6 @@ def plot_umap_embeddings(embeddings: np.ndarray,
     
     custom_cmap = plt.cm.colors.ListedColormap(colors)
     
-    # Get the unique labels in the data
-    unique_labels = np.unique(labels)
-    
     # Create a mapping from model names to their indices in the full list
     model_to_full_index = {model: i for i, model in enumerate(full_model_list)}
     

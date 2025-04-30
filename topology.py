@@ -20,17 +20,18 @@ from topology_utils import plot_umap_embeddings
 #%% Parameters
 # Channel generation parameters
 cfg = DataConfig(
-    n_samples = 100_000,  # For Stochastic models
+    n_samples = 50_000,  # For Stochastic models
     n_prbs = 20,
     n_rx = 1,
-    n_tx = 64,
-    snr = 50
+    n_tx = 32,
+    snr = 50,
+    normalize = True
 )
 
 # UMAP parameters
 cfg.x_points = cfg.n_samples #int(2e5)  # Number of points to sample from each dataset (randomly)
 cfg.plot_points = cfg.n_samples #int(2e5)    # Number of points to plot from each dataset (randomly)
-cfg.seed = 42
+cfg.seed = 42  # TODO: put False to keep random
 cfg.rt_uniform_steps = [1, 1]
 
 # Channel models  : ['Rayleigh', 'CDL-x', 'TDL-x', 'UMa', 'UMi'] 
@@ -40,7 +41,7 @@ cfg.rt_uniform_steps = [1, 1]
 ch_models = ['UMa']
 
 # Ray tracing scenarios
-rt_scens = ['asu_campus_3p5']  # TODO: careful so [''] is not in list.
+rt_scens = ['asu_campus_3p5']
 models = rt_scens + ch_models
 
 #%% Load and Prepare Data
@@ -61,6 +62,12 @@ print(f"UMAP fit_transform took {umap_time:.2f} seconds")
 #%% Visualize Results
 plot_umap_embeddings(umap_embeddings, labels, models, plot_points=cfg.plot_points,
                      title="UMAP Embeddings (All Data)")
+
+# UMAP with flipped plot order (better visualization of what's inside what)
+plot_umap_embeddings(umap_embeddings, labels, models[::-1], 
+                     full_model_list=models,
+                     plot_points=cfg.plot_points,
+                     title="UMAP Embeddings (All Data) - plot order flipped")
 
 # plt.xlim((-11, 8))
 # plt.ylim((-7, 7))
