@@ -7,12 +7,13 @@ structure of channel data using UMAP dimensionality reduction.
 import matplotlib.pyplot as plt
 import numpy as np
 
+from typing import Optional
 
 def plot_umap_embeddings(embeddings: np.ndarray, 
                         labels: np.ndarray,
                         model_names: list,
                         full_model_list: list = None,
-                        plot_points: int = 2000,
+                        plot_points: Optional[int] = None,
                         add_labels: bool = True,
                         title: str = None,
                         xlim: tuple = None,
@@ -60,31 +61,34 @@ def plot_umap_embeddings(embeddings: np.ndarray,
     model_to_full_index = {model: i for i, model in enumerate(full_model_list)}
     
     # Select random points for plotting
-    plot_indices = []
-    for i, model in enumerate(model_names):
-        # Get the index of this model in the full list
-        full_idx = model_to_full_index.get(model)
-        if full_idx is None:
-            continue
+    if not plot_points:
+        plot_indices = np.arange(len(labels))
+    else:
+        plot_indices = []
+        for i, model in enumerate(model_names):
+            # Get the index of this model in the full list
+            full_idx = model_to_full_index.get(model)
+            if full_idx is None:
+                continue
+                
+            # Look for labels that match the index in the full list
+            class_mask = labels == full_idx
+            n_points = np.sum(class_mask)
             
-        # Look for labels that match the index in the full list
-        class_mask = labels == full_idx
-        n_points = np.sum(class_mask)
+            # Skip if there are no points for this class
+            if n_points == 0:
+                continue
+                
+            all_data_idxs = np.where(class_mask)[0]
+            random_data_idxs = np.random.choice(all_data_idxs, size=min(n_points, plot_points), replace=False)
+            plot_indices.extend(random_data_idxs)
         
-        # Skip if there are no points for this class
-        if n_points == 0:
-            continue
+        # Check if we have any points to plot
+        if not plot_indices:
+            print("Warning: No points to plot for any of the classes.")
+            return
             
-        all_data_idxs = np.where(class_mask)[0]
-        random_data_idxs = np.random.choice(all_data_idxs, size=min(n_points, plot_points), replace=False)
-        plot_indices.extend(random_data_idxs)
-    
-    # Check if we have any points to plot
-    if not plot_indices:
-        print("Warning: No points to plot for any of the classes.")
-        return
-        
-    plot_indices = np.array(plot_indices)
+        plot_indices = np.array(plot_indices)
     
     plt.figure(figsize=(7, 5), dpi=200, tight_layout=True)
     
