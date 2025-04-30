@@ -56,7 +56,7 @@ class DataConfig:
         """Initialize derived parameters after instance creation."""
         if self.relevant_mats is None:
             self.relevant_mats = ['aoa_az', 'aoa_el', 'aod_az', 'aod_el', 
-                                'power', 'phase', 'delay', 'rx_pos', 'tx_pos']
+                                  'power', 'phase', 'delay', 'rx_pos', 'tx_pos']
         
         # Compute frequency selection (one subcarrier per PRB)
         if self.freq_selection is None:
@@ -77,23 +77,26 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
         Dictionary mapping model names to their data matrices
     """
     data_matrices = {}
-    load_params = dict(tx_sets=[1], rx_sets=[0], matrices=config.relevant_mats)
-    
+
     for model in models:
         print(f"\nProcessing {model}...")
         
         if model in STOCHASTIC_MODELS:
             print(f"Generating stochastic data for {model}...")
             ch_gen = SionnaChannelGenerator(config.n_prbs, model, config.batch_size, 
-                                          config.n_rx, config.n_tx, 
-                                          config.normalize, config.seed)
+                                            config.n_rx, config.n_tx, 
+                                            config.normalize, config.seed)
             ch_data = sample_ch(ch_gen, config.n_prbs, config.n_samples // config.batch_size, 
-                              config.batch_size, config.snr, config.n_rx, config.n_tx)
+                                config.batch_size, config.snr, config.n_rx, config.n_tx)
             ch_data_t = ch_data[:, :, :, config.freq_selection].astype(np.complex64)
             data_matrices[model] = ch_data_t
             print(f"Generated {ch_data_t.shape[0]} samples for {model}")
         elif model in RT_MODELS:
             print(f"Loading ray tracing data for {model}...")
+            
+            # If the same model appears multiple times, use different BSs
+            tx_id = models.index(model) + 1
+            load_params = dict(tx_sets=[tx_id], rx_sets=[0], matrices=config.relevant_mats)
             dataset = dm.load(model, **load_params)
             
             # Adjust uniform steps based on dataset size
