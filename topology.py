@@ -187,13 +187,3 @@ plot_umap_3d_histogram(umap_3d, labels_3d, models,
                        alpha=0.4,
                        normalize=True,
                        density_threshold=1.0)  # Only show densities above 1%
-
-#%% Plot 3D Histogram with Plotly
-from topology_utils import plot_umap_3d_histogram_plotly
-
-plot_umap_3d_histogram_plotly(umap_3d, labels_3d, models, 
-                              n_bins=50,
-                              plot_points=cfg.plot_points,
-                              opacity=0.4,
-                              normalize=True,
-                              density_threshold=1.0)  # Only show densities above 1%
