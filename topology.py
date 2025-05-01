@@ -25,7 +25,7 @@ cfg = DataConfig(
     n_rx = 1,
     n_tx = 32,
     snr = 50,
-    normalize = True
+    normalize = False
 )
 
 # UMAP parameters
@@ -41,8 +41,11 @@ cfg.rt_uniform_steps = [1, 1]
 ch_models = ['UMa']
 
 # Ray tracing scenarios
-rt_scens = ['asu_campus_3p5']
-rt_scens = ['city_0_newyork_3p5!1', 'city_0_newyork_3p5!2', 'city_0_newyork_3p5!3']
+rt_scens = ['asu_campus_3p5'] # add '!1' at the end to cue tx-id = 1
+# rt_scens = ['asu_campus_3p5',
+#             'city_0_newyork_3p5!1', 'city_0_newyork_3p5!2', 'city_0_newyork_3p5!3',
+#             'city_1_losangeles_3p5!1', 'city_1_losangeles_3p5!2', 'city_1_losangeles_3p5!3',
+#             'city_2_chicago_3p5!1', 'city_2_chicago_3p5!2', 'city_2_chicago_3p5!3']
 models = rt_scens + ch_models
 
 #%% Load and Prepare Data

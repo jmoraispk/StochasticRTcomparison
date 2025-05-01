@@ -129,14 +129,13 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
             dataset_t = dataset.subset(dataset_u.get_active_idxs())
             print(f"After active user filtering: {dataset_t.n_ue} UEs")
 
+            # Normalization step
             dataset_t.compute_channels(ch_params)
-            if config.normalize:
-                ch_norms = np.sqrt(np.sum(np.abs(dataset_t.channels)**2, axis=(1,2,3), keepdims=True))
-                non_zero_ues = np.where(ch_norms[:,0,0,0] > 0)[0]
-                # Normalize by unit norm
-                normed_ch = dataset_t.channels[non_zero_ues] / ch_norms[non_zero_ues]
+            ch_norms = np.sqrt(np.sum(np.abs(dataset_t.channels)**2, axis=(1,2,3), keepdims=True))
+            non_zero_ues = np.where(ch_norms[:,0,0,0] > 0)[0]
+            norm_to_apply = ch_norms[non_zero_ues] if config.normalize else 1
             
-            data_matrices[model] = normed_ch if config.normalize else dataset_t.channels[non_zero_ues]
+            data_matrices[model] = dataset_t.channels[non_zero_ues] / norm_to_apply
             print(f"Generated {data_matrices[model].shape[0]} non-zero samples for {model}")
         else:
             raise Exception(f'Model {model} not recognized.')
