@@ -78,7 +78,7 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
     """
     data_matrices = {}
 
-    for model in models:
+    for model_idx, model in enumerate(models):
         print(f"\nProcessing {model}...")
         
         if model in STOCHASTIC_MODELS:
@@ -95,7 +95,7 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
             print(f"Loading ray tracing data for {model}...")
             
             # If the same model appears multiple times, use different BSs
-            tx_id = models.index(model) + 1
+            tx_id = model_idx - models.index(model) + 1
             load_params = dict(tx_sets=[tx_id], rx_sets=[0], matrices=config.relevant_mats)
             dataset = dm.load(model, **load_params)
             
