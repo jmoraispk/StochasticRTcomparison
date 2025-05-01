@@ -15,12 +15,12 @@ from cuml import UMAP  # type: ignore
 import matplotlib.pyplot as plt
 
 from data_gen import DataConfig, load_data_matrices, prepare_umap_data, remove_outliers
-from topology_utils import plot_umap_embeddings
+from topology_utils import plot_umap_embeddings, plot_umap_3d_histogram
 
 #%% Parameters
 # Channel generation parameters
 cfg = DataConfig(
-    n_samples = 50_000,  # For Stochastic models
+    n_samples = 100_000,  # For Stochastic models
     n_prbs = 20,
     n_rx = 1,
     n_tx = 32,
@@ -49,13 +49,13 @@ rt_scens = ['asu_campus_3p5'] # add '!1' at the end to cue tx-id = 1
 models = rt_scens + ch_models
 
 #%% Load and Prepare Data
-# Load and prepare data
+
 data_matrices = load_data_matrices(models, cfg)
 data_real, labels = prepare_umap_data(data_matrices, models, x_points=cfg.x_points)
 
 #%% Compute UMAP Embeddings
-# Compute UMAP embeddings
-umap_model = UMAP(n_components=2, random_state=cfg.seed)
+
+umap_model = UMAP(n_components=2)#, random_state=cfg.seed)
 
 print("Starting UMAP fit_transform...")
 start_time = time.time()
@@ -106,11 +106,18 @@ plt.xlim((-11, 8))
 plt.ylim((-7, 7))
 
 #%% Visualize Results (without outliers)
-embeddings_clean, labels_clean = remove_outliers(umap_embeddings, labels, threshold=5.0)
+embeddings_clean, labels_clean = remove_outliers(umap_embeddings, labels, threshold=1.5)
 print(f"Removed {len(umap_embeddings) - len(embeddings_clean)} outliers")
 
 plot_umap_embeddings(embeddings_clean, labels_clean, models, plot_points=cfg.plot_points,
                      title="UMAP Embeddings (No Outliers)")
+
+
+# UMAP with flipped plot order (better visualization of what's inside what)
+plot_umap_embeddings(embeddings_clean, labels_clean, models[::-1], 
+                     full_model_list=models, plot_points=cfg.plot_points,
+                     title="UMAP Embeddings (No Outliers) - plot order flipped")
+
 
 #%% Partial UMAP Fitting
 # Choose which models to fit and transform based on names
@@ -165,3 +172,25 @@ plot_umap_embeddings(embedding_transform, labels_transform, fitted_model_names,
                     full_model_list=models,
                     xlim=xlim,
                     ylim=ylim)
+
+#%% 3D Densities
+
+%matplotlib QtAgg
+# %matplotlib inline
+plot_umap_3d_histogram(embeddings_clean, labels_clean, models, 
+                       n_bins=50,
+                       plot_points=cfg.plot_points,
+                       title="UMAP 3D Density Visualization",
+                       alpha=0.4,
+                       normalize=True,
+                       density_threshold=1.0)  # Only show densities above 1%
+
+#%% Plot 3D Histogram with Plotly
+from topology_utils import plot_umap_3d_histogram_plotly
+
+plot_umap_3d_histogram_plotly(embeddings_clean, labels_clean, models, 
+                              n_bins=50,
+                              plot_points=cfg.plot_points,
+                              opacity=0.4,
+                              normalize=True,
+                              density_threshold=1.0)  # Only show densities above 1%
