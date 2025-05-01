@@ -25,7 +25,7 @@ cfg = DataConfig(
     n_rx = 1,
     n_tx = 32,
     snr = 50,
-    normalize = False
+    normalize = True
 )
 
 # UMAP parameters
@@ -175,9 +175,12 @@ plot_umap_embeddings(embedding_transform, labels_transform, fitted_model_names,
 
 #%% 3D Densities
 
+umap_3d, labels_3d = umap_embeddings, labels
+# umap_3d, labels_3d = embeddings_clean, labels_clean
+
 %matplotlib QtAgg
 # %matplotlib inline
-plot_umap_3d_histogram(embeddings_clean, labels_clean, models, 
+plot_umap_3d_histogram(umap_3d, labels_3d, models, 
                        n_bins=50,
                        plot_points=cfg.plot_points,
                        title="UMAP 3D Density Visualization",
@@ -188,7 +191,7 @@ plot_umap_3d_histogram(embeddings_clean, labels_clean, models,
 #%% Plot 3D Histogram with Plotly
 from topology_utils import plot_umap_3d_histogram_plotly
 
-plot_umap_3d_histogram_plotly(embeddings_clean, labels_clean, models, 
+plot_umap_3d_histogram_plotly(umap_3d, labels_3d, models, 
                               n_bins=50,
                               plot_points=cfg.plot_points,
                               opacity=0.4,

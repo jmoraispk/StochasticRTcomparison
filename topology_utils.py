@@ -371,8 +371,13 @@ def plot_umap_3d_histogram_plotly(embeddings: np.ndarray,
             
         plot_indices = np.array(plot_indices)
     
-    # Create figure
-    fig = go.Figure()
+    # Create a larger square figure
+    fig = go.Figure(layout=dict(
+        width=1000,  # Width in pixels
+        height=800,  # Equal height for square aspect
+        paper_bgcolor='white',
+        plot_bgcolor='white'
+    ))
     
     # For each model, create a separate histogram surface
     for i, model in enumerate(model_names):
@@ -448,7 +453,9 @@ def plot_umap_3d_histogram_plotly(embeddings: np.ndarray,
             yaxis_title='UMAP Component 2',
             zaxis_title='Density (%)' if normalize else 'Density',
             camera=camera,
-            aspectmode='cube'
+            # Force square aspect ratio
+            aspectmode='cube',
+            aspectratio=dict(x=1, y=1, z=0.7)  # Slightly shorter in z for better visualization
         ),
         showlegend=True,
         legend=dict(
@@ -458,8 +465,10 @@ def plot_umap_3d_histogram_plotly(embeddings: np.ndarray,
             x=0.01,
             bgcolor='rgba(255, 255, 255, 0.8)'  # Semi-transparent white background
         ),
-        margin=dict(l=0, r=0, b=0, t=30)
+        margin=dict(l=0, r=0, b=0, t=50)  # Slightly more top margin for title
     )
     
     # Show the plot
-    fig.show() 
+    fig.show()
+
+    return fig
