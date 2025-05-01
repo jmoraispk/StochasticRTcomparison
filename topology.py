@@ -30,7 +30,7 @@ cfg = DataConfig(
 
 # UMAP parameters
 cfg.x_points = cfg.n_samples #int(2e5)  # Number of points to sample from each dataset (randomly)
-cfg.plot_points = cfg.n_samples #int(2e5)    # Number of points to plot from each dataset (randomly)
+cfg.plot_points = cfg.n_samples # No. points to plot from each dataset (randomly). None = all points.
 cfg.seed = 42  # TODO: put False to keep random
 cfg.rt_uniform_steps = [1, 1]
 
@@ -42,6 +42,7 @@ ch_models = ['UMa']
 
 # Ray tracing scenarios
 rt_scens = ['asu_campus_3p5']
+rt_scens = ['city_0_newyork_3p5!1', 'city_0_newyork_3p5!2', 'city_0_newyork_3p5!3']
 models = rt_scens + ch_models
 
 #%% Load and Prepare Data
@@ -51,7 +52,7 @@ data_real, labels = prepare_umap_data(data_matrices, models, x_points=cfg.x_poin
 
 #%% Compute UMAP Embeddings
 # Compute UMAP embeddings
-umap_model = UMAP(n_components=2)#, random_state=cfg.seed)
+umap_model = UMAP(n_components=2, random_state=cfg.seed)
 
 print("Starting UMAP fit_transform...")
 start_time = time.time()
@@ -65,8 +66,7 @@ plot_umap_embeddings(umap_embeddings, labels, models, plot_points=cfg.plot_point
 
 # UMAP with flipped plot order (better visualization of what's inside what)
 plot_umap_embeddings(umap_embeddings, labels, models[::-1], 
-                     full_model_list=models,
-                     plot_points=cfg.plot_points,
+                     full_model_list=models, plot_points=cfg.plot_points,
                      title="UMAP Embeddings (All Data) - plot order flipped")
 
 # plt.xlim((-11, 8))

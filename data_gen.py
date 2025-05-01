@@ -78,10 +78,11 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
     """
     data_matrices = {}
 
-    for model_idx, model in enumerate(models):
+    for model in models:
+        model_name = model.split('!')[0]
         print(f"\nProcessing {model}...")
         
-        if model in STOCHASTIC_MODELS:
+        if model_name in STOCHASTIC_MODELS:
             print(f"Generating stochastic data for {model}...")
             ch_gen = SionnaChannelGenerator(config.n_prbs, model, config.batch_size, 
                                             config.n_rx, config.n_tx, 
@@ -91,13 +92,15 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
             ch_data_t = ch_data[:, :, :, config.freq_selection].astype(np.complex64)
             data_matrices[model] = ch_data_t
             print(f"Generated {ch_data_t.shape[0]} samples for {model}")
-        elif model in RT_MODELS:
+        elif model_name in RT_MODELS:
             print(f"Loading ray tracing data for {model}...")
             
-            # If the same model appears multiple times, use different BSs
-            tx_id = model_idx - models.index(model) + 1
+            # The tx-ID may be hinted by adding '!1' or '!2', to model name
+            possible_tx_id = model.split('!')[-1]            
+            tx_id = int(possible_tx_id) if possible_tx_id.isdigit() else 1
+
             load_params = dict(tx_sets=[tx_id], rx_sets=[0], matrices=config.relevant_mats)
-            dataset = dm.load(model, **load_params)
+            dataset = dm.load(model_name, **load_params)
             
             # Adjust uniform steps based on dataset size
             steps = config.rt_uniform_steps
