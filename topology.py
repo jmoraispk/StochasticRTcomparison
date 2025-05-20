@@ -15,7 +15,8 @@ from cuml import UMAP  # type: ignore
 import matplotlib.pyplot as plt
 
 from data_gen import DataConfig, load_data_matrices, prepare_umap_data, remove_outliers
-from topology_utils import plot_umap_embeddings, plot_umap_3d_histogram
+from topology_utils import (plot_umap_embeddings, plot_umap_3d_histogram, 
+                            plot_amplitude_distribution)
 
 #%% Parameters
 # Channel generation parameters
@@ -25,7 +26,7 @@ cfg = DataConfig(
     n_rx = 1,
     n_tx = 32,
     snr = 50,
-    normalize = True
+    normalize = 'datapoint' # per 'datapoint' or 'dataset'
 )
 
 # UMAP parameters
@@ -38,7 +39,7 @@ cfg.rt_uniform_steps = [1, 1]
 # TR 38.901, x is : ["A", "B", "C", "D", "E"] 
 # ch_models = ['CDL-A', 'CDL-B', 'CDL-C', 'CDL-D', 'CDL-E', 
 #              'TDL-A', 'TDL-B', 'TDL-C', 'Rayleigh', 'UMa', 'UMi']
-ch_models = ['UMa']
+ch_models = ['CDL-A']
 
 # Ray tracing scenarios
 rt_scens = ['asu_campus_3p5'] # add '!1' at the end to cue tx-id = 1
@@ -51,11 +52,11 @@ models = rt_scens + ch_models
 #%% Load and Prepare Data
 
 data_matrices = load_data_matrices(models, cfg)
-data_real, labels = prepare_umap_data(data_matrices, models, cfg)
+data_real, labels = prepare_umap_data(data_matrices, models, cfg.x_points, cfg.seed)
 
 #%% Compute UMAP Embeddings
 
-umap_model = UMAP(n_components=2)#, random_state=cfg.seed)
+umap_model = UMAP(n_components=2, random_state=cfg.seed)
 
 print("Starting UMAP fit_transform...")
 start_time = time.time()
@@ -178,7 +179,7 @@ plot_umap_embeddings(embedding_transform, labels_transform, fitted_model_names,
 umap_3d, labels_3d = umap_embeddings, labels
 # umap_3d, labels_3d = embeddings_clean, labels_clean
 
-%matplotlib QtAgg
+# %matplotlib QtAgg
 # %matplotlib inline
 plot_umap_3d_histogram(umap_3d, labels_3d, models, 
                        n_bins=50,
@@ -187,3 +188,27 @@ plot_umap_3d_histogram(umap_3d, labels_3d, models,
                        alpha=0.4,
                        normalize=True,
                        density_threshold=1.0)  # Only show densities above 1%
+
+#%% Amplitude distributions
+
+# Transform real data into complex data
+real_data_shape = (data_real.shape[0], data_real.shape[1]//2) 
+data_complex = data_real.view(np.complex64).reshape(real_data_shape)
+
+# Calculate amplitudes for each point
+amplitude_data = np.sqrt(np.sum(np.abs(data_complex)**2, axis=1))
+
+plot_amplitude_distribution(amplitude_data, labels, models, 
+                            title="Amplitude Distribution by Model",
+                            density=False)
+
+#%%
+
+amps1 = np.sqrt(np.sum(np.abs(data_matrices['asu_campus_3p5'])**2, axis=(1,2,3)))
+amps2 = np.sqrt(np.sum(np.abs(data_matrices['UMa'           ])**2, axis=(1,2,3)))
+
+plt.scatter(range(len(amps1)), amps1, label='asu')
+plt.scatter(range(len(amps1), len(amps1) + len(amps2)), amps2, label='uma')
+plt.legend()
+
+#%%

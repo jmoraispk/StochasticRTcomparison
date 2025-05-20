@@ -83,15 +83,17 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
         
         if model_name in STOCHASTIC_MODELS:
             print(f"Generating stochastic data for {model}...")
-            ch_gen = SionnaChannelGenerator(config.n_prbs, model, config.batch_size, 
-                                            config.n_rx, config.n_tx, 
-                                            # False, config.seed)
-                                            config.normalize, config.seed)
+            ch_gen = SionnaChannelGenerator(num_prbs=config.n_prbs,
+                                            channel_name=model,
+                                            batch_size=config.batch_size,
+                                            n_rx=config.n_rx,
+                                            n_tx=config.n_tx,
+                                            normalize=False, #config.normalize, #3
+                                            seed=config.seed)
             ch_data = sample_ch(ch_gen, config.n_prbs, config.n_samples // config.batch_size, 
                                 config.batch_size, config.snr, config.n_rx, config.n_tx)
-            ch_data_t = ch_data[:, :, :, config.freq_selection].astype(np.complex64)
-            data_matrices[model] = ch_data_t
-            print(f"Generated {ch_data_t.shape[0]} samples for {model}")
+            mat = ch_data[:, :, :, config.freq_selection].astype(np.complex64)
+            
         elif model_name in RT_MODELS:
             print(f"Loading ray tracing data for {model}...")
             
@@ -129,24 +131,25 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
             dataset_t = dataset.subset(dataset_u.get_active_idxs())
             print(f"After active user filtering: {dataset_t.n_ue} UEs")
 
-            # # Normalization step
-            dataset_t.compute_channels(ch_params)
-            ch_norms = np.sqrt(np.sum(np.abs(dataset_t.channels)**2, axis=(1,2,3), keepdims=True))
-            non_zero_ues = np.where(ch_norms[:,0,0,0] > 0)[0]
-            norm_to_apply = ch_norms[non_zero_ues] if config.normalize else 1
-            
-            data_matrices[model] = dataset_t.channels[non_zero_ues] / norm_to_apply
-            print(f"Generated {data_matrices[model].shape[0]} non-zero samples for {model}")
+            mat = dataset_t.compute_channels(ch_params)
         else:
             raise Exception(f'Model {model} not recognized.')
-    
-        # Normalize outside (explicit and uniform for both)
-        # if config.normalize:
-        #     ch_norms = np.sqrt(np.sum(np.abs(data_matrices[model])**2, 
-        #                               axis=(1,2,3), keepdims=True))
-        #     non_zero_ues = np.where(ch_norms[:,0,0,0] > 0)[0]
-            
-        #     data_matrices[model] = data_matrices[model][non_zero_ues] / ch_norms[non_zero_ues]
+
+        print(f"Generated {mat.shape[0]} samples for {model}")
+
+        # Normalize
+        if config.normalize:
+            if config.normalize == 'datapoint':
+                ch_norms = np.sqrt(np.sum(np.abs(mat)**2, axis=(1,2,3), keepdims=True))
+                non_zero_ues = np.where(ch_norms[:,0,0,0] > 0)[0]
+                
+                # if non zero is diff from the actual number of UEs, print warning
+                if non_zero_ues.shape[0] != mat.shape[0]:
+                    print(f"Warning: {model} has {data_matrices[model].shape[0]} UEs, "
+                        f"but {non_zero_ues.shape[0]} non-zero UEs")
+                data_matrices[model] = mat[non_zero_ues] / ch_norms[non_zero_ues]
+        else:
+            data_matrices[model] = mat
     
     return data_matrices
 
@@ -178,7 +181,8 @@ def sample_ch(ch_gen, n_prbs: int, n_iter: int = 100, batch_size: int = 10,
     return d.reshape(n_samples, n_rx, n_tx, n_sub)
 
 def prepare_umap_data(data_matrices: dict, model_names: list, x_points: int = 5000, 
-                      seed: Optional[int] = None, release_memory: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+                      seed: Optional[int] = None, release_memory: bool = True, 
+                      convert_to_real: bool = True) -> Tuple[np.ndarray, np.ndarray]:
     """
     Prepare data matrices for UMAP analysis by sampling and concatenating.
     
@@ -215,13 +219,10 @@ def prepare_umap_data(data_matrices: dict, model_names: list, x_points: int = 50
     data = np.concatenate(data, axis=0)
     labels = np.concatenate(labels, axis=0)
     
-    # Separate real and imaginary parts
-    data_real = np.concatenate([np.real(data), np.imag(data)], axis=1)
+    if convert_to_real:
+        data = data.view(np.float32).reshape(data.shape[0], -1)
     
-    if release_memory:
-        del data
-    
-    return data_real, labels
+    return data, labels
 
 def detect_outliers(data: np.ndarray, threshold: float = 3.0) -> np.ndarray:
     """
