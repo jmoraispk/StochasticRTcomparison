@@ -5,9 +5,8 @@ from both stochastic and ray tracing models. It includes utilities for data
 configuration, matrix loading, outlier detection, and data preparation.
 """
 
-import os
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 import deepmimo as dm  # type: ignore
 import numpy as np
@@ -86,6 +85,7 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
             print(f"Generating stochastic data for {model}...")
             ch_gen = SionnaChannelGenerator(config.n_prbs, model, config.batch_size, 
                                             config.n_rx, config.n_tx, 
+                                            # False, config.seed)
                                             config.normalize, config.seed)
             ch_data = sample_ch(ch_gen, config.n_prbs, config.n_samples // config.batch_size, 
                                 config.batch_size, config.snr, config.n_rx, config.n_tx)
@@ -129,7 +129,7 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
             dataset_t = dataset.subset(dataset_u.get_active_idxs())
             print(f"After active user filtering: {dataset_t.n_ue} UEs")
 
-            # Normalization step
+            # # Normalization step
             dataset_t.compute_channels(ch_params)
             ch_norms = np.sqrt(np.sum(np.abs(dataset_t.channels)**2, axis=(1,2,3), keepdims=True))
             non_zero_ues = np.where(ch_norms[:,0,0,0] > 0)[0]
@@ -139,7 +139,15 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
             print(f"Generated {data_matrices[model].shape[0]} non-zero samples for {model}")
         else:
             raise Exception(f'Model {model} not recognized.')
+    
+        # Normalize outside (explicit and uniform for both)
+        # if config.normalize:
+        #     ch_norms = np.sqrt(np.sum(np.abs(data_matrices[model])**2, 
+        #                               axis=(1,2,3), keepdims=True))
+        #     non_zero_ues = np.where(ch_norms[:,0,0,0] > 0)[0]
             
+        #     data_matrices[model] = data_matrices[model][non_zero_ues] / ch_norms[non_zero_ues]
+    
     return data_matrices
 
 def sample_ch(ch_gen, n_prbs: int, n_iter: int = 100, batch_size: int = 10,
@@ -169,7 +177,8 @@ def sample_ch(ch_gen, n_prbs: int, n_iter: int = 100, batch_size: int = 10,
     
     return d.reshape(n_samples, n_rx, n_tx, n_sub)
 
-def prepare_umap_data(data_matrices: dict, model_names: list, x_points: int = 5000, release_memory: bool = True) -> Tuple[np.ndarray, np.ndarray]:
+def prepare_umap_data(data_matrices: dict, model_names: list, x_points: int = 5000, 
+                      seed: Optional[int] = None, release_memory: bool = True) -> Tuple[np.ndarray, np.ndarray]:
     """
     Prepare data matrices for UMAP analysis by sampling and concatenating.
     
@@ -185,6 +194,9 @@ def prepare_umap_data(data_matrices: dict, model_names: list, x_points: int = 50
     """
     labels = []
     data = []
+    
+    if seed:
+        np.random.seed(seed)
     
     for i, model in enumerate(model_names):
         matrix = data_matrices[model]

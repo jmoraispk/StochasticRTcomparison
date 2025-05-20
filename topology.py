@@ -20,7 +20,7 @@ from topology_utils import plot_umap_embeddings, plot_umap_3d_histogram
 #%% Parameters
 # Channel generation parameters
 cfg = DataConfig(
-    n_samples = 100_000,  # For Stochastic models
+    n_samples = 10_000,  # For Stochastic models
     n_prbs = 20,
     n_rx = 1,
     n_tx = 32,
@@ -31,7 +31,7 @@ cfg = DataConfig(
 # UMAP parameters
 cfg.x_points = cfg.n_samples #int(2e5)  # Number of points to sample from each dataset (randomly)
 cfg.plot_points = cfg.n_samples # No. points to plot from each dataset (randomly). None = all points.
-cfg.seed = 42  # TODO: put False to keep random
+cfg.seed = 42  # Set to None to keep random
 cfg.rt_uniform_steps = [1, 1]
 
 # Channel models  : ['Rayleigh', 'CDL-x', 'TDL-x', 'UMa', 'UMi'] 
@@ -51,7 +51,7 @@ models = rt_scens + ch_models
 #%% Load and Prepare Data
 
 data_matrices = load_data_matrices(models, cfg)
-data_real, labels = prepare_umap_data(data_matrices, models, x_points=cfg.x_points)
+data_real, labels = prepare_umap_data(data_matrices, models, cfg)
 
 #%% Compute UMAP Embeddings
 
