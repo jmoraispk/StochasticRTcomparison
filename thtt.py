@@ -1,20 +1,62 @@
-"""Training and testing utilities for channel model comparison.
+"""Utilities for Training and Testing Channel Models
 
-This module provides functions for training and testing channel models,
-including cross-testing between different models and visualization of results.
-It supports both stochastic and ray tracing channel models.
+This module brings together a suite of functions designed for the training and 
+evaluation of channel models. It includes capabilities for cross-testing among 
+various models and visualizing the outcomes. The module is compatible with both 
+stochastic and ray tracing channel models.
 """
 
+#%% Import Modules
 import sys
 sys.path.insert(0, '/mnt/c/Users/jmora/Documents/GitHub/StochasticRTcomparison/')
 
 import os
+import pickle
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from tqdm import tqdm
+
+DATA_FOLDER = 'data'
+
+# Example usage
+ch_models = ['CDL-B', 'UMa']
+rt_scens = ['asu_campus_3p5']
+models = rt_scens + ch_models
+
+#%% Load and Prepare Data
 
 from data_gen import DataConfig, load_data_matrices
+
+# Configure data generation
+cfg = DataConfig(
+    n_samples = 10_000,
+    n_prbs = 20,
+    n_rx = 1,
+    n_tx = 32,
+    snr = 50,
+    normalize = 'dataset' # per 'datapoint' or 'dataset'
+)
+
+# UMAP parameters
+cfg.x_points = cfg.n_samples #int(2e5)  # Number of points to sample from each dataset (randomly)
+cfg.seed = 42  # Set to None to keep random
+cfg.rt_uniform_steps = [1, 1]
+
+# Load data
+data_matrices = load_data_matrices(models, cfg)
+
+#%% Save matrices
+os.makedirs(DATA_FOLDER, exist_ok=True)
+with open(os.path.join(DATA_FOLDER, 'data_matrices.pkl'), 'wb') as f:
+    pickle.dump(data_matrices, f)
+
+#%% Load matrices (in environment with PyTorch)
+
+with open(os.path.join(DATA_FOLDER, 'data_matrices.pkl'), 'rb') as f:
+    data_matrices = pickle.load(f)
+
+#%% Train Models
+
 from thtt_utils import (
     train_models,
     cross_test_models,
@@ -23,31 +65,10 @@ from thtt_utils import (
     train_with_percentages
 )
 
-#%% Training and Testing Channel Models
-# This notebook demonstrates the training and testing of channel models,
-# including cross-testing between different models and visualization of results.
-
-#%% Load and Prepare Data
-# Example usage
-ch_models = ['CDL-B', 'UMa']
-rt_scens = ['asu_campus_3p5']
-models = rt_scens + ch_models
-
-# Configure data generation
-config = DataConfig()
-config.n_samples = 10_000
-config.n_prbs = 50
-config.n_rx = 1
-config.n_tx = 32
-config.snr = 50
-
-# Load data
-data_matrices = load_data_matrices(models, config)
-
-#%% Train Models
 # Train models
 dataset_main_folder = 'channel_datasets_uma_asu3'
 all_res = train_models(models, data_matrices, dataset_main_folder)
+#convert_channel_angle_delay(data_matrices[model])[:,:,:,:NC]
 
 #%% Plot Training Results
 # Plot training results
