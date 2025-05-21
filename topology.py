@@ -21,12 +21,12 @@ from topology_utils import (plot_umap_embeddings, plot_umap_3d_histogram,
 #%% Parameters
 # Channel generation parameters
 cfg = DataConfig(
-    n_samples = 10_000,  # For Stochastic models
+    n_samples = 50_000,  # For Stochastic models
     n_prbs = 20,
     n_rx = 1,
     n_tx = 32,
     snr = 50,
-    normalize = 'datapoint' # per 'datapoint' or 'dataset'
+    normalize = 'dataset' # per 'datapoint' or 'dataset'
 )
 
 # UMAP parameters
@@ -39,7 +39,7 @@ cfg.rt_uniform_steps = [1, 1]
 # TR 38.901, x is : ["A", "B", "C", "D", "E"] 
 # ch_models = ['CDL-A', 'CDL-B', 'CDL-C', 'CDL-D', 'CDL-E', 
 #              'TDL-A', 'TDL-B', 'TDL-C', 'Rayleigh', 'UMa', 'UMi']
-ch_models = ['CDL-A']
+ch_models = ['UMa']
 
 # Ray tracing scenarios
 rt_scens = ['asu_campus_3p5'] # add '!1' at the end to cue tx-id = 1
@@ -200,15 +200,17 @@ amplitude_data = np.sqrt(np.sum(np.abs(data_complex)**2, axis=1))
 
 plot_amplitude_distribution(amplitude_data, labels, models, 
                             title="Amplitude Distribution by Model",
-                            density=False)
+                            density=True)
 
-#%%
+#%% Check amplitudes directly
 
 amps1 = np.sqrt(np.sum(np.abs(data_matrices['asu_campus_3p5'])**2, axis=(1,2,3)))
 amps2 = np.sqrt(np.sum(np.abs(data_matrices['UMa'           ])**2, axis=(1,2,3)))
 
-plt.scatter(range(len(amps1)), amps1, label='asu')
-plt.scatter(range(len(amps1), len(amps1) + len(amps2)), amps2, label='uma')
+plt.figure(dpi=150)
+plt.scatter(range(len(amps1)), amps1, label='asu', s=1)
+plt.scatter(range(len(amps1), len(amps1) + len(amps2)), amps2, label='uma', s=1)
 plt.legend()
+plt.grid()
 
 #%%

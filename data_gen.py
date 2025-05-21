@@ -139,15 +139,30 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
 
         # Normalize
         if config.normalize:
-            if config.normalize == 'datapoint':
-                ch_norms = np.sqrt(np.sum(np.abs(mat)**2, axis=(1,2,3), keepdims=True))
-                non_zero_ues = np.where(ch_norms[:,0,0,0] > 0)[0]
+            # First collect all channel norms
+            ch_norms = np.sqrt(np.sum(np.abs(mat)**2, axis=(1,2,3), keepdims=True))
+            non_zero_ues = np.where(ch_norms[:,0,0,0] > 0)[0]
+            
+            # if non zero is diff from the actual number of UEs, print warning
+            if non_zero_ues.shape[0] != mat.shape[0]:
+                print(f"Warning: {model} has {mat.shape[0]} UEs, "
+                    f"but {non_zero_ues.shape[0]} non-zero UEs")
                 
-                # if non zero is diff from the actual number of UEs, print warning
-                if non_zero_ues.shape[0] != mat.shape[0]:
-                    print(f"Warning: {model} has {data_matrices[model].shape[0]} UEs, "
-                        f"but {non_zero_ues.shape[0]} non-zero UEs")
+            if config.normalize == 'datapoint':
                 data_matrices[model] = mat[non_zero_ues] / ch_norms[non_zero_ues]
+            elif config.normalize == 'dataset':
+                # Get min and max of norms
+                min_norm = np.min(ch_norms[non_zero_ues])
+                max_norm = np.max(ch_norms[non_zero_ues])
+                
+                # First normalize to unit norm
+                H_unit = mat[non_zero_ues] / ch_norms[non_zero_ues]
+                
+                # Then scale by min-max normalized norms
+                norms_norm = (ch_norms[non_zero_ues] - min_norm) / (max_norm - min_norm)
+                data_matrices[model] = H_unit * norms_norm
+            else:
+                raise ValueError(f"Invalid normalization mode: {config.normalize}")
         else:
             data_matrices[model] = mat
     
