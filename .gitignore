@@ -4,3 +4,7 @@ __pycache__/*
 deepmimo_scenarios/*
 deepmimo_scenarios_downloaded/*
 .ipynb_checkpoints/*
+data/*
+*.pkl
+*.mat
+*.csv
