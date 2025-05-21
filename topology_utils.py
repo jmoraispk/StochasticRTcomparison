@@ -264,11 +264,8 @@ def plot_umap_3d_histogram(embeddings: np.ndarray,
         hist_masked = np.ma.masked_array(hist, mask=mask)
         
         # Create surface plot
-        surf = ax.plot_surface(xpos, ypos, hist_masked.T, 
-                             color=colors[i],
-                             alpha=alpha,
-                             shade=True,
-                             lightsource=plt.matplotlib.colors.LightSource(azdeg=315, altdeg=45))
+        ax.plot_surface(xpos, ypos, hist_masked.T, color=colors[i], alpha=alpha, shade=True,
+                        lightsource=plt.matplotlib.colors.LightSource(azdeg=315, altdeg=45))
     
     # Set labels and title
     ax.set_xlabel('UMAP Component 1')
@@ -290,4 +287,63 @@ def plot_umap_3d_histogram(embeddings: np.ndarray,
              shadow=True)
     
     plt.tight_layout() 
+
+def plot_amplitude_distribution(amplitudes: np.ndarray, labels: np.ndarray, model_names: list,
+                                full_model_list: list = None, n_bins: int = 50, title: str = None,
+                                density: bool = True) -> None:
+    """
+    Plot the amplitude distribution histogram of the data.
+    
+    Args:
+        data_real: Real data matrix of shape (n_samples, n_features)
+        labels: Array of labels for each point
+        model_names: List of model names to plot
+        full_model_list: Complete list of all possible models (for consistent color mapping)
+        n_bins: Number of bins for the histogram
+        title: Title for the plot
+        density: Whether to normalize the histogram to form a probability density
+    """
+    # If full_model_list is not provided, use model_names as the complete list
+    if full_model_list is None:
+        full_model_list = model_names
+    
+    # Create a color mapping based on the full model list
+    n_full_models = len(full_model_list)
+    model_type_color_map = {}
+    
+    # Assign colors based on position in the full model list
+    for i, model in enumerate(full_model_list):
+        model_type_color_map[model] = i / max(1, n_full_models - 1)
+    
+    # Create a color mapping for the current models
+    n_models = len(model_names)
+    colors = []
+    for model in model_names:
+        if model in model_type_color_map:
+            colors.append(plt.cm.viridis(model_type_color_map[model]))
+        else:
+            colors.append(plt.cm.viridis(len(colors) / max(n_models, 1)))
+    
+    # Create figure
+    plt.figure(figsize=(10, 6), dpi=200)
+    
+    # Plot histogram for each model
+    for i, model in enumerate(model_names):
+        model_idx = full_model_list.index(model)
+        model_mask = labels == model_idx
+        model_amplitudes = amplitudes[model_mask]
+        
+        plt.hist(model_amplitudes, bins=n_bins, alpha=0.5, 
+                 label=model, color=colors[i], density=density)
+    
+    # Set labels and title
+    plt.xlabel('Amplitude')
+    plt.ylabel('Density' if density else 'Count')
+    if title:
+        plt.title(title)
+    
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    # plt.show()  # Remove this line to let caller control when to show
 
