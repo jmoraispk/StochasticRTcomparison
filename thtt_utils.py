@@ -106,7 +106,6 @@ def train_models(models: list,
         List of training results for each model
     """
     all_res = []
-    n_ant = 10  # Number of transmit antennas
     
     for model_idx, model in enumerate(models):
         print(f'Training in area {model_idx} ({model})')
@@ -163,6 +162,7 @@ def cross_test_models(models: list,
                      dataset_main_folder: str,
                      encoded_dim: int = 128,
                      NC: int = 16,
+                     Nt: int = 32,
                      seed: int = 2) -> Tuple[List[Dict], np.ndarray]:
     """
     Test models across different datasets.
@@ -173,13 +173,13 @@ def cross_test_models(models: list,
         dataset_main_folder: Base folder for datasets
         encoded_dim: Dimension of encoded representation
         NC: Number of delay taps
+        Nt: Number of antennas
         seed: Random seed for reproducibility
         
     Returns:
         Tuple of (list of test results, results matrix)
     """
     all_test_results = []
-    n_ant = 10  # Number of transmit antennas
     n_models = len(models)
     results_matrix = np.zeros((n_models, n_models))
     
@@ -210,7 +210,7 @@ def cross_test_models(models: list,
                 model_path=src_model_path,
                 encoded_dim=encoded_dim,
                 Nc=NC,
-                Nt=n_ant
+                Nt=Nt
             )
 
             mean_nmse = np.mean(test_results['test_nmse_all'])
@@ -235,7 +235,10 @@ def plot_training_results(all_res: list, models: list, save_path: str = None) ->
         return 10 * np.log10(x)
 
     plt.figure(figsize=(10, 6), dpi=200)
-    plt.style.use('seaborn')
+
+    # Define colors for each model
+    colors = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 
+              'tab:brown', 'tab:pink', 'tab:gray', 'tab:olive', 'tab:cyan']
 
     for model_idx, model in enumerate(models):
         result = all_res[model_idx]
@@ -243,19 +246,23 @@ def plot_training_results(all_res: list, models: list, save_path: str = None) ->
         val_nmse_db = to_db(np.array(result['all_val_nmse']))
         epochs = np.arange(1, len(train_nmse_db) + 1)
         
-        plt.plot(epochs, train_nmse_db, '-', label=f'{model} (Train)', linewidth=2)
-        plt.plot(epochs, val_nmse_db, '--', label=f'{model} (Val)', linewidth=2)
+        # Use same color for both train and val lines
+        plt.plot(epochs, train_nmse_db, '-', label=f'{model}', 
+                 linewidth=2, color=colors[model_idx])
+        plt.plot(epochs, val_nmse_db, '--', linewidth=2, color=colors[model_idx])
         
         test_nmse_db = to_db(result['test_nmse'])
         print(f'{model} - Final Test NMSE: {test_nmse_db:.2f} dB')
 
     plt.grid(True, alpha=0.3)
-    plt.xlabel('Epoch', fontsize=12)
-    plt.ylabel('NMSE (dB)', fontsize=12)
+    plt.xlabel('Epoch', fontsize=16)
+    plt.ylabel('NMSE (dB)', fontsize=16)
     plt.title('Training and Validation NMSE per Area', fontsize=14)
-    plt.legend(ncols=2, bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.legend(fontsize=14)#, bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.tight_layout()
-    
+    plt.xticks(fontsize=14)
+    plt.yticks(fontsize=14)
+
     if save_path:
         plt.savefig(save_path, bbox_inches='tight', dpi=300)
     plt.show()
@@ -270,25 +277,30 @@ def plot_test_matrix(results_matrix: np.ndarray, models: list, save_path: str = 
         save_path: Optional path to save the plot
     """
     plt.figure(figsize=(10, 8), dpi=200)
-    plt.style.use('seaborn')
     
     results_matrix_db = 10 * np.log10(results_matrix)
     
     # Create heatmap
     plt.imshow(results_matrix_db, cmap='viridis_r')
-    plt.colorbar(label='NMSE (dB)')
+    cbar = plt.colorbar()
+    cbar.ax.tick_params(labelsize=14)
+    cbar.ax.set_ylabel('NMSE (dB)', fontsize=14)
     
     # Add text annotations
+    # (first position of results is the training model, second is the testing model)
     for i in range(len(models)):
         for j in range(len(models)):
             plt.text(j, i, f'{results_matrix_db[i, j]:.1f}',
                     ha='center', va='center', color='white' 
-                    if results_matrix_db[i, j] > np.mean(results_matrix_db) else 'black')
+                    if results_matrix_db[i, j] > np.mean(results_matrix_db) else 'black',
+                    fontsize=16)
     
-    plt.xticks(np.arange(len(models)), models, rotation=45)
-    plt.yticks(np.arange(len(models)), models)
+    plt.xticks(np.arange(len(models)), models, rotation=45, fontsize=14)
+    plt.yticks(np.arange(len(models)), models, fontsize=14)
     plt.title('Cross-Test Results (NMSE in dB)', fontsize=14)
     plt.tight_layout()
+    plt.ylabel('Training Model', fontsize=16)
+    plt.xlabel('Testing Model', fontsize=16)
     
     if save_path:
         plt.savefig(save_path, bbox_inches='tight', dpi=300)
