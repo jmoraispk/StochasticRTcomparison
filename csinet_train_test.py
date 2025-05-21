@@ -242,15 +242,8 @@ def train_model(
         }
 
 
-def test_model(
-    test_loader,
-    net=None,
-    model_path=None,
-    encoded_dim=32,
-    Nc=100,
-    Nt=64,
-    n_refine_nets=5,
-):
+def test_model(test_loader, net=None, model_path=None, encoded_dim=32, 
+               Nc=100, Nt=64, n_refine_nets=5):
     """Test a trained CSI-Net model on a test dataset.
     
     Args:

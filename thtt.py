@@ -21,9 +21,9 @@ N_TAPS = 16
 N_ANT = 32
 ENCODED_DIM = 32
 
-MATRIX_NAME = 'data_matrices_50k.pkl'
+MATRIX_NAME = 'data_matrices_10k_datapoint.pkl'
 MAT_PATH = os.path.join(DATA_FOLDER, MATRIX_NAME)
-DATASET_MAIN_FOLDER = 'channel_datasets_50k'
+DATASET_MAIN_FOLDER = 'channel_datasets_10k_datapoint'
 
 # Example usage
 ch_models = ['CDL-B', 'UMa']
@@ -36,18 +36,18 @@ from data_gen import DataConfig, load_data_matrices
 
 # Configure data generation
 cfg = DataConfig(
-    n_samples = 50_000,
+    n_samples = 10_000,
     n_prbs = 20,
     n_rx = 1,
     n_tx = N_ANT,
     snr = 50,
-    normalize = 'dataset' # per 'datapoint' or 'dataset'
+    normalize = 'datapoint' # per 'datapoint' or 'dataset'
 )
 
 # UMAP parameters
 cfg.x_points = cfg.n_samples #int(2e5)  # Number of points to sample from each dataset (randomly)
 cfg.seed = 42  # Set to None to keep random
-cfg.rt_uniform_steps = [1, 1]
+cfg.rt_uniform_steps = [2, 2]
 
 # Load data
 data_matrices = load_data_matrices(models, cfg)
@@ -75,12 +75,7 @@ from thtt_utils import (
 
 # Train models
 all_res = train_models(models, data_matrices, DATASET_MAIN_FOLDER, 
-                       encoded_dim=ENCODED_DIM, NC=N_TAPS, num_epochs=10)#,
-                    #    n_train_samples=10240*20,
-                    #    n_val_samples=10000,
-                    #    n_test_samples=10000,
-                    #    seed=2)
-#convert_channel_angle_delay(data_matrices[model])[:,:,:,:NC]
+                       encoded_dim=ENCODED_DIM, NC=N_TAPS, num_epochs=5)
 
 #%% Plot Training Results
 
