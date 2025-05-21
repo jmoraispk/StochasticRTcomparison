@@ -1,3 +1,10 @@
+"""Training and testing utilities for channel model comparison.
+
+This module provides functions for training and testing channel models,
+including cross-testing between different models and visualization of results.
+It supports both stochastic and ray tracing channel models.
+"""
+
 import os
 import numpy as np
 import torch
@@ -5,14 +12,41 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from collections import OrderedDict
-# from torchinfo import summary
 from tqdm import tqdm
 from scipy.io import savemat
 import sys, datetime
-from models.CsinetPlus import CsinetPlus
-from utils.cal_nmse import cal_nmse
-from data_feed.data_feed import DataFeed
+from CsinetPlus import CsinetPlus
+from data_feed import DataFeed
 from einops import rearrange
+
+def cal_nmse(A, B):
+    """
+    Compute the Normalized Mean Squared Error (NMSE) between matrices A and B using PyTorch.
+
+    Args:
+    - A (torch.Tensor): The original matrix.
+    - B (torch.Tensor): The approximated matrix.
+
+    Returns:
+    - float: The NMSE value between matrices A and B.
+    """
+    # Calculate the Frobenius norm difference between A and B
+
+    A = rearrange(A, 'b RealImag Nt Nc -> b Nt Nc RealImag').contiguous()
+    B = rearrange(B, 'b RealImag Nt Nc -> b Nt Nc RealImag').contiguous()
+    A = torch.view_as_complex(A)
+    B = torch.view_as_complex(B)
+    
+    # A = torch.view_as_complex(torch.permute(A, (0,2,3,1)).contiguous())
+    # B = torch.view_as_complex(torch.permute(B, (0,2,3,1)).contiguous())
+
+    error_norm = torch.norm(A - B, p='fro', dim=(-1, -2))
+    
+    # Calculate the Frobenius norm of A
+    A_norm = torch.norm(A, p='fro', dim=(-1, -2))
+    
+    # Return NMSE
+    return (error_norm**2) / (A_norm**2)
 
 def train_model(
     train_loader,
@@ -31,6 +65,28 @@ def train_model(
     Nt=64,  # Number of antennas    (angle bins)
     n_refine_nets=5, # number of refine layers at the decoder
 ):
+    """Train a CSI-Net model on channel data.
+    
+    Args:
+        train_loader: DataLoader for training data
+        val_loader: DataLoader for validation data
+        test_loader: DataLoader for test data
+        comment: Comment for logging
+        encoded_dim: Dimension of encoded representation
+        num_epoch: Number of training epochs
+        lr: Learning rate
+        if_writer: Whether to use tensorboard writer
+        model_path_save: Path to save model
+        model_path_load: Path to load model
+        load_model: Whether to load model
+        save_model: Whether to save model
+        Nc: Number of subcarriers
+        Nt: Number of antennas
+        n_refine_nets: Number of refinement networks
+        
+    Returns:
+        Dictionary containing training metrics and model path
+    """
     # check gpu acceleration availability
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # Assuming that we are on a CUDA machine, this should print a CUDA device:
@@ -195,6 +251,20 @@ def test_model(
     Nt=64,
     n_refine_nets=5,
 ):
+    """Test a trained CSI-Net model on a test dataset.
+    
+    Args:
+        test_loader: DataLoader containing test data
+        net: Optional pre-initialized model
+        model_path: Path to saved model weights
+        encoded_dim: Dimension of encoded representation
+        Nc: Number of subcarriers
+        Nt: Number of antennas
+        n_refine_nets: Number of refinement networks
+        
+    Returns:
+        Dictionary containing test metrics and model outputs
+    """
     # check gpu acceleration availability
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # Assuming that we are on a CUDA machine, this should print a CUDA device:
@@ -253,7 +323,19 @@ def test_model(
     
 
 def test_from_csv(csv_folder, csv_name, model_path=None, encoded_dim=32, Nc=100, Nt=64):
-                          
+    """Test a CSI-Net model using data from CSV files.
+    
+    Args:
+        csv_folder: Folder containing CSV data files
+        csv_name: Name of CSV file to test on
+        model_path: Path to saved model weights
+        encoded_dim: Dimension of encoded representation
+        Nc: Number of subcarriers
+        Nt: Number of antennas
+        
+    Returns:
+        Dictionary containing test results
+    """
     test_loader = DataLoader(DataFeed(csv_folder, csv_name, num_data_point=100000), 
                              batch_size=1024)
     
@@ -264,15 +346,6 @@ def test_from_csv(csv_folder, csv_name, model_path=None, encoded_dim=32, Nc=100,
                               Nt=Nt)
     return test_results
 
-
-def test_AE(csv_folder, csv_name, model_path, encoded_dim=32, Nc=16, Nt=32):
-    """
-    csv_folder = "channel_datasets/1/" -> folder with a .mat with all the data and the CSV
-    csv_name = "/train_data_idx.csv" -> file containing the indices for indexing all the data 
-                                        (must be inside the csv folder)
-    """
-    return test_from_csv(csv_folder=csv_folder, csv_name=csv_name, 
-                         model_path=model_path, encoded_dim=encoded_dim, Nc=Nc, Nt=Nt)
 
 def train_model_loop(
     training_data_folder = "channel_datasets/1/",
@@ -302,7 +375,35 @@ def train_model_loop(
     lr=1e-2,
     n_refine_nets=5, # number of refine layers at the decoder
     ):
+    """Run multiple training iterations with different dataset sizes.
     
+    Args:
+        training_data_folder: Path to training data
+        testing_data_folder: Path to testing data
+        train_csv: Training data CSV filename
+        val_csv: Validation data CSV filename
+        test_csv: Test data CSV filename
+        train_batch_size: Batch size for training
+        test_batch_size: Batch size for testing
+        n_runs: Number of training runs
+        list_number_training_datapoints: List of dataset sizes to train on
+        n_val_samples: Number of validation samples
+        n_test_samples: Number of test samples
+        Nc: Number of subcarriers
+        Nt: Number of antennas
+        encoded_dim: Dimension of encoded representation
+        num_epoch: Number of training epochs
+        tensorboard_writer: Whether to use tensorboard
+        model_path_save: Path to save model
+        model_path_load: Path to load model
+        save_model: Whether to save model
+        load_model: Whether to load model
+        lr: Learning rate
+        n_refine_nets: Number of refinement networks
+        
+    Returns:
+        Dictionary containing training results
+    """
     np.random.seed(10)
     seeds = np.random.randint(0, 10000, size=(1000,))
 
