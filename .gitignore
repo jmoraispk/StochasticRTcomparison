@@ -10,3 +10,4 @@ logs/*
 *.mat
 *.csv
 *.path
+*.png
