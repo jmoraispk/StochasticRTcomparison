@@ -17,6 +17,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 DATA_FOLDER = 'data'
+N_TAPS = 16
+N_ANT = 32
+ENCODED_DIM = 32
+
+MATRIX_NAME = 'data_matrices_50k.pkl'
+MAT_PATH = os.path.join(DATA_FOLDER, MATRIX_NAME)
+DATASET_MAIN_FOLDER = 'channel_datasets_50k'
 
 # Example usage
 ch_models = ['CDL-B', 'UMa']
@@ -29,10 +36,10 @@ from data_gen import DataConfig, load_data_matrices
 
 # Configure data generation
 cfg = DataConfig(
-    n_samples = 10_000,
+    n_samples = 50_000,
     n_prbs = 20,
     n_rx = 1,
-    n_tx = 32,
+    n_tx = N_ANT,
     snr = 50,
     normalize = 'dataset' # per 'datapoint' or 'dataset'
 )
@@ -47,12 +54,12 @@ data_matrices = load_data_matrices(models, cfg)
 
 #%% Save matrices
 os.makedirs(DATA_FOLDER, exist_ok=True)
-with open(os.path.join(DATA_FOLDER, 'data_matrices.pkl'), 'wb') as f:
+with open(MAT_PATH, 'wb') as f:
     pickle.dump(data_matrices, f)
 
 #%% Load matrices (in environment with PyTorch)
 
-with open(os.path.join(DATA_FOLDER, 'data_matrices.pkl'), 'rb') as f:
+with open(MAT_PATH, 'rb') as f:
     data_matrices = pickle.load(f)
 
 #%% Train Models
@@ -64,25 +71,31 @@ from thtt_utils import (
     plot_test_matrix,
     train_with_percentages
 )
+# NC=16 * n_ant=32 * 2 -> 32 encoded dim(32x reduction)
 
 # Train models
-dataset_main_folder = 'channel_datasets_uma_asu3'
-all_res = train_models(models, data_matrices, dataset_main_folder)
+all_res = train_models(models, data_matrices, DATASET_MAIN_FOLDER, 
+                       encoded_dim=ENCODED_DIM, NC=N_TAPS, num_epochs=10)#,
+                    #    n_train_samples=10240*20,
+                    #    n_val_samples=10000,
+                    #    n_test_samples=10000,
+                    #    seed=2)
 #convert_channel_angle_delay(data_matrices[model])[:,:,:,:NC]
 
 #%% Plot Training Results
-# Plot training results
+
 plot_training_results(all_res, models, save_path='training_results.png')
 
 #%% Cross-Test Models
-# Cross-test models
-all_test_results, results_matrix = cross_test_models(models, data_matrices, dataset_main_folder)
+
+all_test_results, results_matrix = \
+    cross_test_models(models, data_matrices, DATASET_MAIN_FOLDER, 
+                      encoded_dim=ENCODED_DIM, NC=N_TAPS, Nt=N_ANT)
 
 #%% Plot Test Results
-# Plot test results matrix
+
 plot_test_matrix(results_matrix, models, save_path='test_matrix.png')
 
-# Print test results table
 results_matrix_db = 10 * np.log10(results_matrix)
 df = pd.DataFrame(results_matrix_db, index=models, columns=models)
 df = df.round(1)
@@ -94,8 +107,7 @@ print(df.to_string())
 #%% Train with Different Percentages of Data
 
 # Train models with different percentages
-dataset_main_folder = 'channel_datasets_uma_asu_percentages'
-os.makedirs(dataset_main_folder, exist_ok=True)
+os.makedirs(DATASET_MAIN_FOLDER, exist_ok=True)
 
 # Define percentages to use for training
 percentages = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
@@ -105,14 +117,14 @@ uma_model_path = 'channel_datasets_uma_asu3/model_UMa/model_encoded-dim=128_mode
 
 # Train UMa model with pre-trained weights
 uma_test_nmse, uma_name = train_with_percentages(
-    'UMa', data_matrices, dataset_main_folder,
+    'UMa', data_matrices, DATASET_MAIN_FOLDER,
     percentages=percentages,
     uma_model_path=uma_model_path, load_model=True
 )
 
 # Train UMa model from scratch
 rand_test_nmse, rand_name = train_with_percentages(
-    'UMa', data_matrices, dataset_main_folder,
+    'UMa', data_matrices, DATASET_MAIN_FOLDER,
     percentages=percentages,
     load_model=False
 )
