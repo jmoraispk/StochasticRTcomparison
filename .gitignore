@@ -9,3 +9,4 @@ logs/*
 *.pkl
 *.mat
 *.csv
+*.path
