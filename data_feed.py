@@ -1,3 +1,10 @@
+"""
+This module provides a DataFeed class for loading and processing channel data 
+from a specified root directory and CSV file. It includes functionality for 
+creating samples from the data and loading them into a PyTorch Dataset.
+"""
+
+import os
 import numpy as np
 import pandas as pd
 import torch
@@ -12,7 +19,8 @@ def create_samples(data_root, csv_path, random_state, num_data_point, portion, s
 
     # load data index
     if select_data_idx is None:
-        data_idx = pd.read_csv(data_root+csv_path)["data_idx"].to_numpy()
+        # data_idx = pd.read_csv(os.path.join(data_root, csv_path))["data_idx"].to_numpy()
+        data_idx = np.loadtxt(os.path.join(data_root, csv_path), dtype=int)
     else:
         data_idx = select_data_idx
         
