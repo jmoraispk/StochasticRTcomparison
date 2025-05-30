@@ -21,9 +21,9 @@ N_TAPS = 16
 N_ANT = 32
 ENCODED_DIM = 32
 
-MATRIX_NAME = 'data_matrices_10k_datapoint.pkl'
+MATRIX_NAME = 'data_matrices_10k_mean-precise.pkl'
 MAT_PATH = os.path.join(DATA_FOLDER, MATRIX_NAME)
-DATASET_MAIN_FOLDER = 'channel_datasets_10k_datapoint'
+DATASET_MAIN_FOLDER = 'channel_datasets_10k_mean-precise'
 
 # Example usage
 ch_models = ['CDL-B', 'UMa']
@@ -41,7 +41,7 @@ cfg = DataConfig(
     n_rx = 1,
     n_tx = N_ANT,
     snr = 50,
-    normalize = 'datapoint' # per 'datapoint' or 'dataset'
+    normalize = 'dataset-mean-precise'
 )
 
 # UMAP parameters
@@ -79,7 +79,7 @@ all_res = train_models(models, data_matrices, DATASET_MAIN_FOLDER,
 
 #%% Plot Training Results
 
-plot_training_results(all_res, models, save_path='training_results.png')
+plot_training_results(all_res, models)
 
 #%% Cross-Test Models
 
@@ -89,7 +89,7 @@ all_test_results, results_matrix = \
 
 #%% Plot Test Results
 
-plot_test_matrix(results_matrix, models, save_path='test_matrix.png')
+plot_test_matrix(results_matrix, models)
 
 results_matrix_db = 10 * np.log10(results_matrix)
 df = pd.DataFrame(results_matrix_db, index=models, columns=models)
