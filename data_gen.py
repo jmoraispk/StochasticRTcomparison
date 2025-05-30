@@ -55,7 +55,7 @@ class DataConfig:
         """Initialize derived parameters after instance creation."""
         if self.relevant_mats is None:
             self.relevant_mats = ['aoa_az', 'aoa_el', 'aod_az', 'aod_el', 
-                                  'power', 'phase', 'delay', 'rx_pos', 'tx_pos']
+                                  'power', 'phase', 'delay', 'rx_pos', 'tx_pos', 'inter']
         
         # Compute frequency selection (one subcarrier per PRB)
         if self.freq_selection is None:
@@ -115,20 +115,19 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
                     steps = [1, 1]
             print(f"Using uniform sampling steps {steps} for {dataset.n_ue} UEs")
             
-            ch_params = dm.ChannelGenParameters()
+            ch_params = dm.ChannelParameters()
             ch_params.ofdm.bandwidth = 15e3 * config.n_prbs * SUBCARRIERS_PER_PRB
             ch_params.ofdm.num_subcarriers = config.n_prbs * SUBCARRIERS_PER_PRB
             ch_params.ofdm.selected_subcarriers = config.freq_selection
             ch_params.bs_antenna.shape = np.array([config.n_tx, 1])
             ch_params.ue_antenna.shape = np.array([config.n_rx, 1])
-            ch_params.ue_antenna.rotation = np.array([0, 0, 0])
 
             # Reduce dataset size with uniform sampling
             dataset_u = dataset.subset(dataset.get_uniform_idxs(steps))
             print(f"After uniform sampling: {dataset_u.n_ue} UEs")
 
             # Consider only active users for redundancy reduction
-            dataset_t = dataset.subset(dataset_u.get_active_idxs())
+            dataset_t = dataset_u.subset(dataset_u.get_active_idxs())
             print(f"After active user filtering: {dataset_t.n_ue} UEs")
 
             mat = dataset_t.compute_channels(ch_params)
