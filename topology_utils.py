@@ -347,3 +347,28 @@ def plot_amplitude_distribution(amplitudes: np.ndarray, labels: np.ndarray, mode
     plt.tight_layout()
     # plt.show()  # Remove this line to let caller control when to show
 
+# Create a 2D histogram (heatmap) of the UMAP embeddings
+def plot_umap_heatmap(embeddings, model_name, xlim, ylim, bins=100, dpi=150):
+    """
+    Plot a 2D histogram (heatmap) of the UMAP embeddings.
+    
+    Args:
+        embeddings: UMAP embeddings of shape (n_samples, 2)
+        model_name: Name of the model to plot
+        xlim: Tuple of (xmin, xmax) for x-axis limits
+        ylim: Tuple of (ymin, ymax) for y-axis limits
+    """
+    plt.figure(dpi=dpi)
+    heatmap, _, _ = np.histogram2d(embeddings[:, 0], 
+                                   embeddings[:, 1], bins=bins,
+                                   range=[xlim, ylim])
+
+    # Plot the heatmap
+    plt.imshow(heatmap.T, origin='lower', cmap='hot', extent=[*xlim, *ylim])
+    plt.colorbar(label='Number of Points')
+    plt.title(f"UMAP Embeddings Heatmap for {model_name[:3]}")
+    plt.xlabel('UMAP 1')
+    plt.ylabel('UMAP 2')
+    plt.xlim(xlim)
+    plt.ylim(ylim)
+    plt.show()
