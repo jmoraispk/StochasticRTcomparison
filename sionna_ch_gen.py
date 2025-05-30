@@ -34,7 +34,7 @@ class SionnaChannelGenerator(tf.keras.Model):
     """Generator class for Sionna channels."""
     def __init__(self, num_prbs: int, channel_name: str = 'UMa', batch_size: int = 1, 
                  n_rx: int = 1, n_tx: int = 1, normalize: bool = True, 
-                 seed: Optional[int] = None, topology_config: Optional[TopologyConfig] = None):
+                 seed: Optional[int] = None, topology: Optional[TopologyConfig] = None):
         """
         Initializor for a Sionna Channel Generator.
 
@@ -51,7 +51,8 @@ class SionnaChannelGenerator(tf.keras.Model):
         self.num_prbs = num_prbs
         self.batch_size = batch_size
         self.normalize = normalize
-        self.topology_config = topology_config
+        self.topology_config = topology
+        
         # parameters for channel modeling
         self.channel_model = channel_name
         self.fc = 3.5e9                  # Frequency [Hz]

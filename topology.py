@@ -114,7 +114,6 @@ plot_umap_embeddings(single_model_embeddings_e, single_model_labels_e, models,
 plt.xlim((xmin, xmax))
 plt.ylim((ymin, ymax))
 
-
 #%% Visualize Results (without outliers)
 embeddings_clean, labels_clean = remove_outliers(umap_embeddings, labels, threshold=1.5)
 print(f"Removed {len(umap_embeddings) - len(embeddings_clean)} outliers")
@@ -245,7 +244,7 @@ print(f'uma mean norm: {np.mean(amps2)}')
 print(f"asu mean amplitude: {np.mean(np.abs(data_matrices['asu_campus_3p5']))}")
 print(f"uma mean amplitude: {np.mean(np.abs(data_matrices['UMa'           ]))}")
 
-#%% 
+#%% Plot 2D Heatmaps of UMAP Embeddings sample density
 
 single_model = 'asu_campus_3p5'
 model_indices = np.where(labels == models.index(single_model))[0]
@@ -256,3 +255,130 @@ single_model = 'UMa'
 model_indices = np.where(labels == models.index(single_model))[0]
 single_model_embeddings_e = umap_embeddings[model_indices]
 plot_umap_heatmap(single_model_embeddings_e, single_model, (xmin, xmax), (ymin, ymax))
+
+
+#%% Sampling method using RT as baseline for UMa/UMi parameterization
+
+# TODO: put this inside data_gen.py as a load_based_on_rt_model
+
+# - when moving this into data_gen.py, isolate the RT-based data gen so it can be
+#   used for other functions as well. 
+# - load_based_on_rt_model should take a single RT model and a single stochastic model (UMa or UMi)
+#   and return a dictionary of a matrix for the stochastic model (or both?)
+
+
+import deepmimo as dm
+from sionna_ch_gen import SionnaChannelGenerator, TopologyConfig
+from data_gen import normalize_data, sample_ch
+
+rt_model = 'asu_campus_3p5'
+stochastic_model = 'UMa'
+config = cfg
+steps = cfg.rt_uniform_steps
+SUBCARRIERS_PER_PRB = 12
+
+# 1- Load RT data
+print(f"Loading ray tracing data for {rt_model}...")
+            
+# The tx-ID may be hinted by adding '!1' or '!2', to model name
+possible_tx_id = rt_model.split('!')[-1]            
+tx_id = int(possible_tx_id) if possible_tx_id.isdigit() else 1
+
+load_params = dict(tx_sets=[tx_id], rx_sets=[0], matrices=config.relevant_mats)
+dataset = dm.load(rt_model, **load_params)
+
+# Adjust uniform steps based on dataset size
+print(f"Using uniform sampling steps {steps} for {dataset.n_ue} UEs")
+
+ch_params = dm.ChannelParameters()
+ch_params.ofdm.bandwidth = 15e3 * config.n_prbs * SUBCARRIERS_PER_PRB
+ch_params.ofdm.num_subcarriers = config.n_prbs * SUBCARRIERS_PER_PRB
+ch_params.ofdm.selected_subcarriers = config.freq_selection
+ch_params.bs_antenna.shape = np.array([config.n_tx, 1])
+ch_params.ue_antenna.shape = np.array([config.n_rx, 1])
+ch_params.bs_antenna.rotation = np.array([0, 0, -135])
+
+# Reduce dataset size with uniform sampling
+dataset_u = dataset.subset(dataset.get_uniform_idxs(steps))
+print(f"After uniform sampling: {dataset_u.n_ue} UEs")
+
+# Consider only active users for redundancy reduction
+dataset_t = dataset_u.subset(dataset_u.get_active_idxs())
+print(f"After active user filtering: {dataset_t.n_ue} UEs")
+
+#mat = dataset_t.compute_channels(ch_params)
+
+
+#%%
+# 2- Generate UMa/UMi data
+
+# 2.1- Create LoS & NLoS Topologies
+b_size = 1 # batch size
+bs_pos = dataset_t.tx_pos.reshape((b_size, 1, 3))
+bs_ori = dataset_t.tx_ori.reshape((b_size, 1, 3))
+
+# LoS
+los_idxs = np.where(dataset_t.los == 1)[0]
+rx_ori_los = np.zeros((b_size, len(los_idxs), 3))  # same as velocities
+
+# TODO: check if this needs to be tf.float32
+topology_los = TopologyConfig(
+    ut_loc=dataset_t.rx_pos[los_idxs],
+    bs_loc=bs_pos,
+    ut_orientations=rx_ori_los,
+    bs_orientations=bs_ori,
+    ut_velocities=rx_ori_los,
+    in_state=False,
+    los=True)
+
+# NLoS
+nlos_idxs = np.where(dataset_t.los == 0)[0]
+rx_ori_nlos = np.zeros((b_size, len(nlos_idxs), 3))  # same as velocities
+
+topology_nlos = TopologyConfig(
+    ut_loc=dataset_t.rx_pos[nlos_idxs],
+    bs_loc=bs_pos,
+    ut_orientations=rx_ori_nlos,
+    bs_orientations=bs_ori,
+    ut_velocities=rx_ori_nlos,
+    in_state=False,
+    los=False)
+
+# 2.2- Create LoS & NLos channel generators
+print(f"Generating stochastic data for {stochastic_model} LoS...")
+los_ch_gen = SionnaChannelGenerator(num_prbs=config.n_prbs,
+                                channel_name=stochastic_model,
+                                batch_size=config.batch_size,
+                                n_rx=config.n_rx,
+                                n_tx=config.n_tx,
+                                normalize=False, #config.normalize, #3
+                                seed=config.seed, 
+                                topology=topology_los)
+
+
+#%%
+print(f"Generating stochastic data for {stochastic_model} NLos...")
+nlos_ch_gen = SionnaChannelGenerator(num_prbs=config.n_prbs,
+                                channel_name=stochastic_model,
+                                batch_size=config.batch_size,
+                                n_rx=config.n_rx,
+                                n_tx=config.n_tx,
+                                normalize=False, #config.normalize, #3
+                                seed=config.seed, 
+                                topology=topology_nlos)
+
+# 2.3- Sample data for LoS & NLoS
+los_ch_data = sample_ch(los_ch_gen, config.n_prbs, config.n_samples // config.batch_size, 
+                    config.batch_size, config.snr, config.n_rx, config.n_tx)
+
+nlos_ch_data = sample_ch(nlos_ch_gen, config.n_prbs, config.n_samples // config.batch_size, 
+                    config.batch_size, config.snr, config.n_rx, config.n_tx)
+
+los_mat = los_ch_data[:, :, :, config.freq_selection].astype(np.complex64)
+nlos_mat = nlos_ch_data[:, :, :, config.freq_selection].astype(np.complex64)
+mat = np.concatenate([los_mat, nlos_mat], axis=0)
+
+# 2.4- Normalize data
+print(f"Generated {mat.shape[0]} samples for {rt_model}")
+data_matrices[rt_model] = normalize_data(mat, mode=config.normalize)
+
