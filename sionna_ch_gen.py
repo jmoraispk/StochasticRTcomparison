@@ -16,12 +16,25 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = "3"  # Silence TensorFlow.
 import sionna  # type: ignore
 import tensorflow as tf  # type: ignore
 
+from dataclasses import dataclass
+import numpy as np
+
+@dataclass
+class TopologyConfig:
+    ut_loc: np.ndarray  # [batch size, num_ut, 3], tf.float
+    bs_loc: np.ndarray  # [batch size, num_bs, 3], tf.float
+    ut_orientations: np.ndarray  # [batch size, num_ut, 3], tf.float
+    bs_orientations: np.ndarray  # [batch size, num_bs, 3], tf.float
+    ut_velocities: np.ndarray  # [batch size, num_ut, 3], tf.float
+    in_state: np.ndarray  # [batch size, num_ut], tf.bool
+    los: Optional[bool]  # tf.bool or None
+
 
 class SionnaChannelGenerator(tf.keras.Model):
     """Generator class for Sionna channels."""
     def __init__(self, num_prbs: int, channel_name: str = 'UMa', batch_size: int = 1, 
                  n_rx: int = 1, n_tx: int = 1, normalize: bool = True, 
-                 seed: Optional[int] = None):
+                 seed: Optional[int] = None, topology_config: Optional[TopologyConfig] = None):
         """
         Initializor for a Sionna Channel Generator.
 
@@ -38,7 +51,7 @@ class SionnaChannelGenerator(tf.keras.Model):
         self.num_prbs = num_prbs
         self.batch_size = batch_size
         self.normalize = normalize
-
+        self.topology_config = topology_config
         # parameters for channel modeling
         self.channel_model = channel_name
         self.fc = 3.5e9                  # Frequency [Hz]
@@ -98,7 +111,7 @@ class SionnaChannelGenerator(tf.keras.Model):
 
         # Setup network topology (required in UMi, UMa, and RMa)
         if self.channel_model in ['UMi', 'UMa']:
-            topology = sionna.channel.gen_single_sector_topology(
+            default_topology = sionna.channel.gen_single_sector_topology(
                 batch_size=self.batch_size,
                 num_ut=1,
                 scenario=self.channel_model.lower(),
@@ -136,7 +149,10 @@ class SionnaChannelGenerator(tf.keras.Model):
                              ut_array=self.ue_array,
                              direction=self.link_direction,
                              enable_pathloss=False)
-            ch_model.set_topology(*topology, los=None)
+            if self.topology_config is not None:
+                ch_model.set_topology(**self.topology_config.__dict__)
+            else:
+                ch_model.set_topology(*default_topology, los=None)
 
         elif 'TDL' in self.channel_model:
             ch_model = sionna.channel.tr38901.TDL(
