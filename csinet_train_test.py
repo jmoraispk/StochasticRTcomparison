@@ -18,6 +18,7 @@ import sys, datetime
 from CsinetPlus import CsinetPlus
 from data_feed import DataFeed
 from einops import rearrange
+from transformerAE import TransformerAE
 
 def cal_nmse(A, B):
     """
@@ -92,9 +93,11 @@ def train_model(
     # Assuming that we are on a CUDA machine, this should print a CUDA device:
     print(device)
     
-    print(f'Creating net with {n_refine_nets} refine nets at decoder side.')
+    
     # instantiate the model and send to GPU
-    net = CsinetPlus(encoded_dim, Nc, Nt, n_refine_nets=n_refine_nets)
+    # print(f'Creating net with {n_refine_nets} refine nets at decoder side.')
+    # net = CsinetPlus(encoded_dim, Nc, Nt, n_refine_nets=n_refine_nets)
+    net = TransformerAE(encoded_dim, Nc, Nt)
     net.to(device)
 
     # path to save the model
