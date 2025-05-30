@@ -136,37 +136,65 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
             raise Exception(f'Model {model} not recognized.')
 
         print(f"Generated {mat.shape[0]} samples for {model}")
+        data_matrices[model] = normalize_data(mat, mode=config.normalize)
 
-        # Normalize
-        if config.normalize:
-            # First collect all channel norms
-            ch_norms = np.sqrt(np.sum(np.abs(mat)**2, axis=(1,2,3), keepdims=True))
-            non_zero_ues = np.where(ch_norms[:,0,0,0] > 0)[0]
-            
-            # if non zero is diff from the actual number of UEs, print warning
-            if non_zero_ues.shape[0] != mat.shape[0]:
-                print(f"Warning: {model} has {mat.shape[0]} UEs, "
-                    f"but {non_zero_ues.shape[0]} non-zero UEs")
-                
-            if config.normalize == 'datapoint':
-                data_matrices[model] = mat[non_zero_ues] / ch_norms[non_zero_ues]
-            elif config.normalize == 'dataset':
-                # Get min and max of norms
-                min_norm = np.min(ch_norms[non_zero_ues])
-                max_norm = np.max(ch_norms[non_zero_ues])
-                
-                # First normalize to unit norm
-                H_unit = mat[non_zero_ues] / ch_norms[non_zero_ues]
-                
-                # Then scale by min-max normalized norms
-                norms_norm = (ch_norms[non_zero_ues] - min_norm) / (max_norm - min_norm)
-                data_matrices[model] = H_unit * norms_norm
-            else:
-                raise ValueError(f"Invalid normalization mode: {config.normalize}")
-        else:
-            data_matrices[model] = mat
-    
     return data_matrices
+
+def normalize_data(data: np.ndarray, mode: str = 'datapoint') -> np.ndarray:
+    """Normalize the data based on the specified mode.
+    
+    Args:
+        data: Input data matrix
+        mode: Normalization mode ('datapoint' or 'dataset')
+        
+    Returns:
+        ndarray: Normalized data matrix
+    """
+    # First collect all channel norms
+    ch_norms = np.sqrt(np.sum(np.abs(data)**2, axis=(1,2,3), keepdims=True))
+    non_zero_ues = np.where(ch_norms[:,0,0,0] > 0)[0]
+    
+    # if non zero is diff from the actual number of UEs, print warning
+    if non_zero_ues.shape[0] != data.shape[0]:
+        print(f"Warning: {data.shape[0]} UEs, "
+              f"but {non_zero_ues.shape[0]} non-zero UEs")
+    data = data[non_zero_ues]
+    if not mode:
+        return data
+
+    if mode == 'datapoint':
+        mat_norm = data[non_zero_ues] / ch_norms[non_zero_ues]
+    elif mode == 'dataset-minmax':
+        # Get min and max of norms
+        min_norm = np.min(ch_norms[non_zero_ues])
+        max_norm = np.max(ch_norms[non_zero_ues])
+        
+        # First normalize to unit norm
+        H_unit = data[non_zero_ues] / ch_norms[non_zero_ues]
+        
+        # Then scale by min-max normalized norms
+        norms_norm = (ch_norms[non_zero_ues] - min_norm) / (max_norm - min_norm)
+        mat_norm = H_unit * norms_norm
+    elif 'dataset-mean' in mode:
+        print(f'mean of not normalized data: {np.mean(np.abs(data))}')
+        mean = np.mean(np.abs(data))
+        # make the mean of the data be around this order of magnitude
+        if mode == 'dataset-mean-around-order':
+            order_of_mag = -3 
+            mat_norm = data * (10**(order_of_mag - np.floor(np.log10(mean)))) 
+        else:# mode == 'dataset-mean-precise':
+            target_mean = 10**(-3)
+            mat_norm = data * (target_mean / mean)
+        
+        print(f'mean of normalized data: {np.mean(np.abs(mat_norm))}')            
+        if mode == 'dataset-mean-var': # additionally, scale variance to 1
+            print(f'var of not normalized data: {np.var(np.abs(data))}')
+            mat_norm /= np.std(np.abs(mat_norm))
+            print(f'var of normalized data: {np.var(np.abs(mat_norm))}')
+    else:
+        raise ValueError(f"Invalid normalization mode: {mode}")
+    
+    return mat_norm
 
 def sample_ch(ch_gen, n_prbs: int, n_iter: int = 100, batch_size: int = 10,
               snr: float = 50, n_rx: int = 1, n_tx: int = 10):

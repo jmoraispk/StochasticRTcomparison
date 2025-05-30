@@ -16,24 +16,28 @@ import matplotlib.pyplot as plt
 
 from data_gen import DataConfig, load_data_matrices, prepare_umap_data, remove_outliers
 from topology_utils import (plot_umap_embeddings, plot_umap_3d_histogram, 
-                            plot_amplitude_distribution)
+                            plot_amplitude_distribution, plot_umap_heatmap)
 
 #%% Parameters
 # Channel generation parameters
 cfg = DataConfig(
-    n_samples = 50_000,  # For Stochastic models
+    n_samples = 10_000,  # For Stochastic models
     n_prbs = 20,
     n_rx = 1,
     n_tx = 32,
     snr = 50,
-    normalize = 'dataset' # per 'datapoint' or 'dataset'
+    normalize = 'dataset-mean-precise'
+    # normalize = 'dataset-mean-var'
+    # per 'datapoint', 'dataset-minmax', 
+    # 'dataset-mean-around-order', 'dataset-mean-precise',
+    # 'dataset-mean-var'
 )
 
 # UMAP parameters
 cfg.x_points = cfg.n_samples #int(2e5)  # Number of points to sample from each dataset (randomly)
 cfg.plot_points = cfg.n_samples # No. points to plot from each dataset (randomly). None = all points.
 cfg.seed = 42  # Set to None to keep random
-cfg.rt_uniform_steps = [1, 1]
+cfg.rt_uniform_steps = [2, 2]
 
 # Channel models  : ['Rayleigh', 'CDL-x', 'TDL-x', 'UMa', 'UMi'] 
 # TR 38.901, x is : ["A", "B", "C", "D", "E"] 
@@ -73,11 +77,13 @@ plot_umap_embeddings(umap_embeddings, labels, models[::-1],
                      full_model_list=models, plot_points=cfg.plot_points,
                      title="UMAP Embeddings (All Data) - plot order flipped")
 
-# plt.xlim((-11, 8))
-# plt.ylim((-7, 7))
+xmin, xmax = plt.gca().get_xlim()
+ymin, ymax = plt.gca().get_ylim()
+# plt.xlim((-7, 5))
+# plt.ylim((-9, 7))
 
-#%% Visualize Single Model
-single_model = 'UMa'
+#%% Visualize Single Model (free label scale)
+single_model = 'asu_campus_3p5'
 single_model_idx = models.index(single_model)
 model_indices = np.where(labels == single_model_idx)[0]
 
@@ -91,9 +97,11 @@ plot_umap_embeddings(single_model_embeddings, single_model_labels, [single_model
                      title=f"UMAP Embeddings ({single_model} Only)",
                      full_model_list=models)
 
-#%% Visualize Single Model (with other model for keeping the labels behaved)
+#%% Visualize Single Model (keep label scale)
 
-other_model_idxs = np.where(labels == models.index('asu_campus_3p5'))[0][0]
+other_model = [model for model in models if model != single_model][0]
+
+other_model_idxs = np.where(labels == other_model_idx)[0][0]
 model_indices[0] = other_model_idxs
 # Select a single model to visualize + 1 sample of the other models for maintaining the same scale
 
@@ -103,8 +111,9 @@ single_model_labels_e = labels[model_indices]
 plot_umap_embeddings(single_model_embeddings_e, single_model_labels_e, models,
                      plot_points=cfg.plot_points,
                      title=f"UMAP Embeddings ({single_model} Only)")
-plt.xlim((-11, 8))
-plt.ylim((-7, 7))
+plt.xlim((xmin, xmax))
+plt.ylim((ymin, ymax))
+
 
 #%% Visualize Results (without outliers)
 embeddings_clean, labels_clean = remove_outliers(umap_embeddings, labels, threshold=1.5)
@@ -202,6 +211,20 @@ plot_amplitude_distribution(amplitude_data, labels, models,
                             title="Amplitude Distribution by Model",
                             density=True)
 
+#%% Raw Data plots: Plot real and imaginary parts of the data
+
+plt.figure(dpi=150)
+n = 1000
+asu_data = data_matrices['asu_campus_3p5'][:n]
+uma_data = data_matrices['UMa'           ][:n]
+# plt.scatter(asu_data.real, asu_data.imag, s=1, label='asu', color='tab:blue')
+plt.scatter(uma_data.real, uma_data.imag, s=1, label='uma', color='tab:orange')
+plt.legend(loc='upper right')
+plt.xlabel('Real Part')
+plt.ylabel('Imaginary Part')
+plt.grid()
+plt.show()
+
 #%% Check amplitudes directly
 
 amps1 = np.sqrt(np.sum(np.abs(data_matrices['asu_campus_3p5'])**2, axis=(1,2,3)))
@@ -210,7 +233,26 @@ amps2 = np.sqrt(np.sum(np.abs(data_matrices['UMa'           ])**2, axis=(1,2,3))
 plt.figure(dpi=150)
 plt.scatter(range(len(amps1)), amps1, label='asu', s=1)
 plt.scatter(range(len(amps1), len(amps1) + len(amps2)), amps2, label='uma', s=1)
+plt.xlabel('Sample Index')
+plt.ylabel('Amplitude')
 plt.legend()
 plt.grid()
+plt.show()
 
-#%%
+print(f'asu mean norm: {np.mean(amps1)}')
+print(f'uma mean norm: {np.mean(amps2)}')
+
+print(f"asu mean amplitude: {np.mean(np.abs(data_matrices['asu_campus_3p5']))}")
+print(f"uma mean amplitude: {np.mean(np.abs(data_matrices['UMa'           ]))}")
+
+#%% 
+
+single_model = 'asu_campus_3p5'
+model_indices = np.where(labels == models.index(single_model))[0]
+single_model_embeddings_e = umap_embeddings[model_indices]
+plot_umap_heatmap(single_model_embeddings_e, single_model, (xmin, xmax), (ymin, ymax))
+
+single_model = 'UMa'
+model_indices = np.where(labels == models.index(single_model))[0]
+single_model_embeddings_e = umap_embeddings[model_indices]
+plot_umap_heatmap(single_model_embeddings_e, single_model, (xmin, xmax), (ymin, ymax))
