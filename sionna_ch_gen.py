@@ -33,7 +33,7 @@ class TopologyConfig:
 class SionnaChannelGenerator(tf.keras.Model):
     """Generator class for Sionna channels."""
     def __init__(self, num_prbs: int, channel_name: str = 'UMa', batch_size: int = 1, 
-                 n_rx: int = 1, n_tx: int = 1, normalize: bool = True, 
+                 n_rx: int = 1, n_tx: int = 1, normalize: bool = True, n_ue: int = 1,
                  seed: Optional[int] = None, topology: Optional[TopologyConfig] = None):
         """
         Initializor for a Sionna Channel Generator.
@@ -59,6 +59,7 @@ class SionnaChannelGenerator(tf.keras.Model):
         self.link_direction = 'downlink' # Link direction (direction of the signal)
         self.delay_spread = 100e-9       # Nominal delay spread [s]
         self.ue_speed = 1                # User speed [m/s]
+        self.n_ue = n_ue
 
         self.ue_array = sionna.channel.tr38901.PanelArray(
             num_rows_per_panel=1,
@@ -108,7 +109,8 @@ class SionnaChannelGenerator(tf.keras.Model):
 
         num_rx_ant, num_tx_ant = rx_array.num_ant, tx_array.num_ant
 
-        self.shape_squeeze = (1, 2, 3, 4, 5) if num_rx_ant + num_tx_ant <= 2 else (1, 3, 5)
+        squeeze_options = (1, 2, 3, 4, 5) if num_rx_ant + num_tx_ant <= 2 else (1, 3, 5)
+        self.shape_squeeze = squeeze_options if self.n_ue == 1 else (3, 5)
 
         # Setup network topology (required in UMi, UMa, and RMa)
         if self.channel_model in ['UMi', 'UMa']:

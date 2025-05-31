@@ -355,40 +355,30 @@ topology_nlos = TopologyConfig(
     los=False)
 
 # 2.2- Create LoS & NLos channel generators
-print(f"Generating stochastic data for {stochastic_model} LoS...")
-los_ch_gen = SionnaChannelGenerator(num_prbs=config.n_prbs,
-                                channel_name=stochastic_model,
-                                batch_size=config.batch_size,
-                                n_rx=config.n_rx,
-                                n_tx=config.n_tx,
-                                normalize=False,
-                                seed=config.seed, 
-                                topology=topology_los)
+ch_gen_params = dict(num_prbs=config.n_prbs, channel_name=stochastic_model, 
+                     batch_size=1, n_rx=config.n_rx, n_tx=config.n_tx,
+                     normalize=False, seed=config.seed)
 
+print(f"Creating channel generator for {stochastic_model} LoS...")
+los_ch_gen = SionnaChannelGenerator(**ch_gen_params, topology=topology_los)
 
-#%%
-print(f"Generating stochastic data for {stochastic_model} NLos...")
-nlos_ch_gen = SionnaChannelGenerator(num_prbs=config.n_prbs,
-                                channel_name=stochastic_model,
-                                batch_size=config.batch_size,
-                                n_rx=config.n_rx,
-                                n_tx=config.n_tx,
-                                normalize=False,
-                                seed=config.seed, 
-                                topology=topology_nlos)
+print(f"Creating channel generator for {stochastic_model} NLos...")
+nlos_ch_gen = SionnaChannelGenerator(**ch_gen_params, topology=topology_nlos)
 
-# 2.3- Sample data for LoS & NLoS
-los_ch_data = sample_ch(los_ch_gen, config.n_prbs, config.n_samples // config.batch_size, 
-                    config.batch_size, config.snr, config.n_rx, config.n_tx)
+# 2.3- Sample data for LoS & NLoS (batch size = 1, since we must sample all users at once)
+print(f"Sampling {len(los_idxs)} LoS samples...")
+los_ch_data = sample_ch(los_ch_gen, config.n_prbs, 1, len(los_idxs), 
+                        config.snr, config.n_rx, config.n_tx)
 
-nlos_ch_data = sample_ch(nlos_ch_gen, config.n_prbs, config.n_samples // config.batch_size, 
-                    config.batch_size, config.snr, config.n_rx, config.n_tx)
+print(f"Sampling {len(nlos_idxs)} NLos samples...")
+nlos_ch_data = sample_ch(nlos_ch_gen, config.n_prbs, 1, len(nlos_idxs), 
+                        config.snr, config.n_rx, config.n_tx)
 
 los_mat = los_ch_data[:, :, :, config.freq_selection].astype(np.complex64)
 nlos_mat = nlos_ch_data[:, :, :, config.freq_selection].astype(np.complex64)
 mat = np.concatenate([los_mat, nlos_mat], axis=0)
+print(f"Generated {mat.shape[0]} samples for {rt_model}")
 
 # 2.4- Normalize data
-print(f"Generated {mat.shape[0]} samples for {rt_model}")
 data_matrices[rt_model] = normalize_data(mat, mode=config.normalize)
 
