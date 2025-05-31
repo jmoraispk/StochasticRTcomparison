@@ -21,16 +21,18 @@ from topology_utils import (plot_umap_embeddings, plot_umap_3d_histogram,
 #%% Parameters
 # Channel generation parameters
 cfg = DataConfig(
-    n_samples = 10_000,  # For Stochastic models
+    n_samples = 10_000,
     n_prbs = 20,
     n_rx = 1,
     n_tx = 32,
     snr = 50,
-    normalize = 'dataset-mean-precise'
+    batch_size = 10, 
+    normalize = 'dataset-mean-var-complex'
     # normalize = 'dataset-mean-var'
     # per 'datapoint', 'dataset-minmax', 
     # 'dataset-mean-around-order', 'dataset-mean-precise',
-    # 'dataset-mean-var'
+    # 'dataset-mean-var',
+    # 'dataset-mean-complex', 'dataset-mean-var-complex'
 )
 
 # UMAP parameters
@@ -246,12 +248,12 @@ print(f"uma mean amplitude: {np.mean(np.abs(data_matrices['UMa'           ]))}")
 
 #%% Plot 2D Heatmaps of UMAP Embeddings sample density
 
-single_model = 'asu_campus_3p5'
+single_model = 'UMa'
 model_indices = np.where(labels == models.index(single_model))[0]
 single_model_embeddings_e = umap_embeddings[model_indices]
 plot_umap_heatmap(single_model_embeddings_e, single_model, (xmin, xmax), (ymin, ymax))
 
-single_model = 'UMa'
+single_model = 'asu_campus_3p5'
 model_indices = np.where(labels == models.index(single_model))[0]
 single_model_embeddings_e = umap_embeddings[model_indices]
 plot_umap_heatmap(single_model_embeddings_e, single_model, (xmin, xmax), (ymin, ymax))
@@ -270,6 +272,7 @@ plot_umap_heatmap(single_model_embeddings_e, single_model, (xmin, xmax), (ymin, 
 import deepmimo as dm
 from sionna_ch_gen import SionnaChannelGenerator, TopologyConfig
 from data_gen import normalize_data, sample_ch
+import tensorflow as tf
 
 rt_model = 'asu_campus_3p5'
 stochastic_model = 'UMa'
@@ -303,11 +306,17 @@ dataset_u = dataset.subset(dataset.get_uniform_idxs(steps))
 print(f"After uniform sampling: {dataset_u.n_ue} UEs")
 
 # Consider only active users for redundancy reduction
-dataset_t = dataset_u.subset(dataset_u.get_active_idxs())
-print(f"After active user filtering: {dataset_t.n_ue} UEs")
+dataset_a = dataset_u.subset(dataset_u.get_active_idxs())
+print(f"After active user filtering: {dataset_a.n_ue} UEs")
 
 #mat = dataset_t.compute_channels(ch_params)
 
+# Sample RT data
+usr_idxs = 0
+
+# TODO: try to do all sampling at once. If doesn't work, distribute in batches.
+dataset_t = dataset_a.subset(np.arange(10_000))
+print(f"After final sampling: {dataset_t.n_ue} UEs")
 
 #%%
 # 2- Generate UMa/UMi data
@@ -315,33 +324,34 @@ print(f"After active user filtering: {dataset_t.n_ue} UEs")
 # 2.1- Create LoS & NLoS Topologies
 b_size = 1 # batch size
 bs_pos = dataset_t.tx_pos.reshape((b_size, 1, 3))
-bs_ori = dataset_t.tx_ori.reshape((b_size, 1, 3))
+bs_ori = dataset_t.tx_ori.reshape((b_size, 1, 3)) * np.pi / 180 # to radians
 
 # LoS
 los_idxs = np.where(dataset_t.los == 1)[0]
+rx_pos_los = dataset_t.rx_pos[los_idxs].reshape((b_size, -1, 3))  # Reshape to [batch, num_ut, 3]
 rx_ori_los = np.zeros((b_size, len(los_idxs), 3))  # same as velocities
 
-# TODO: check if this needs to be tf.float32
 topology_los = TopologyConfig(
-    ut_loc=dataset_t.rx_pos[los_idxs],
-    bs_loc=bs_pos,
-    ut_orientations=rx_ori_los,
-    bs_orientations=bs_ori,
-    ut_velocities=rx_ori_los,
-    in_state=False,
+    ut_loc=tf.cast(rx_pos_los, tf.float32),
+    bs_loc=tf.cast(bs_pos, tf.float32),
+    ut_orientations=tf.cast(rx_ori_los, tf.float32),
+    bs_orientations=tf.cast(bs_ori, tf.float32),
+    ut_velocities=tf.cast(rx_ori_los, tf.float32),
+    in_state=tf.cast(np.zeros((b_size, len(los_idxs)), dtype=bool), tf.bool),
     los=True)
 
 # NLoS
 nlos_idxs = np.where(dataset_t.los == 0)[0]
+rx_pos_nlos = dataset_t.rx_pos[nlos_idxs].reshape((b_size, -1, 3))  # Reshape to [batch, num_ut, 3]
 rx_ori_nlos = np.zeros((b_size, len(nlos_idxs), 3))  # same as velocities
 
 topology_nlos = TopologyConfig(
-    ut_loc=dataset_t.rx_pos[nlos_idxs],
-    bs_loc=bs_pos,
-    ut_orientations=rx_ori_nlos,
-    bs_orientations=bs_ori,
-    ut_velocities=rx_ori_nlos,
-    in_state=False,
+    ut_loc=tf.cast(rx_pos_nlos, tf.float32),
+    bs_loc=tf.cast(bs_pos, tf.float32),
+    ut_orientations=tf.cast(rx_ori_nlos, tf.float32),
+    bs_orientations=tf.cast(bs_ori, tf.float32),
+    ut_velocities=tf.cast(rx_ori_nlos, tf.float32),
+    in_state=tf.cast(np.zeros((b_size, len(nlos_idxs)), dtype=bool), tf.bool),
     los=False)
 
 # 2.2- Create LoS & NLos channel generators
@@ -351,7 +361,7 @@ los_ch_gen = SionnaChannelGenerator(num_prbs=config.n_prbs,
                                 batch_size=config.batch_size,
                                 n_rx=config.n_rx,
                                 n_tx=config.n_tx,
-                                normalize=False, #config.normalize, #3
+                                normalize=False,
                                 seed=config.seed, 
                                 topology=topology_los)
 
@@ -363,7 +373,7 @@ nlos_ch_gen = SionnaChannelGenerator(num_prbs=config.n_prbs,
                                 batch_size=config.batch_size,
                                 n_rx=config.n_rx,
                                 n_tx=config.n_tx,
-                                normalize=False, #config.normalize, #3
+                                normalize=False,
                                 seed=config.seed, 
                                 topology=topology_nlos)
 

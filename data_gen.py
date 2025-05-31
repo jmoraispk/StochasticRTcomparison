@@ -176,19 +176,30 @@ def normalize_data(data: np.ndarray, mode: str = 'datapoint') -> np.ndarray:
         mat_norm = H_unit * norms_norm
     elif 'dataset-mean' in mode:
         print(f'mean of not normalized data: {np.mean(np.abs(data))}')
-        mean = np.mean(np.abs(data))
+        
+        if 'complex' in mode:
+            mean = np.mean(data)
+        else:
+            mean = np.mean(np.abs(data))
+        
         # make the mean of the data be around this order of magnitude
         if mode == 'dataset-mean-around-order':
             order_of_mag = -3 
             mat_norm = data * (10**(order_of_mag - np.floor(np.log10(mean)))) 
-        else:# mode == 'dataset-mean-precise':
+        elif mode == 'dataset-mean-precise':
             target_mean = 10**(-3)
             mat_norm = data * (target_mean / mean)
         
-        print(f'mean of normalized data: {np.mean(np.abs(mat_norm))}')            
-        if mode == 'dataset-mean-var': # additionally, scale variance to 1
+        if 'complex' in mode:
+            mat_norm = data - mean
+
+        print(f'mean of normalized data: {np.mean(np.abs(mat_norm))}')
+        if 'var' in mode:
             print(f'var of not normalized data: {np.var(np.abs(data))}')
-            mat_norm /= np.std(np.abs(mat_norm))
+            if mode == 'dataset-mean-var': # additionally, scale variance to 1
+                mat_norm /= np.std(np.abs(mat_norm))
+            elif mode == 'dataset-mean-var-complex':
+                mat_norm = mat_norm / np.std(mat_norm)
             print(f'var of normalized data: {np.var(np.abs(mat_norm))}')
     else:
         raise ValueError(f"Invalid normalization mode: {mode}")
