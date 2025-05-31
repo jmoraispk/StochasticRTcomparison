@@ -6,11 +6,12 @@ class Encoder(nn.Module):
     # input: (batch_size, Nc, Nt) channel matrix
     # output: (batch_size, encoded_dim) codeword
     # CSI_NET
-    def __init__(self, encoded_dim, Nc=100, Nrt=64):
+    def __init__(self, encoded_dim, Nc=100, Nrt=64, n_heads=8):
         super().__init__()
         self.Nc = Nc
         self.Nrt = Nrt
         self.n_out_channels = 8
+        self.encoded_dim = encoded_dim
 
         self.conv_block1 = nn.Conv2d(in_channels=2, 
                       out_channels=self.n_out_channels, 
@@ -21,55 +22,59 @@ class Encoder(nn.Module):
         
         self.d_model = self.Nrt * self.n_out_channels
         dim_feedforward = 4 * self.d_model
-        nhead = 8
+        
         self.transformer_layer1 = nn.TransformerEncoderLayer(d_model=self.d_model, 
                                                             dim_feedforward=dim_feedforward, 
-                                                            nhead=nhead, 
+                                                            nhead=n_heads, 
                                                             batch_first=True)
         self.transformer_layer2 = nn.TransformerEncoderLayer(d_model=self.d_model, 
                                                             dim_feedforward=dim_feedforward, 
-                                                            nhead=nhead, 
+                                                            nhead=n_heads, 
                                                             batch_first=True)
         self.transformer_layer3 = nn.TransformerEncoderLayer(d_model=self.d_model, 
                                                             dim_feedforward=dim_feedforward, 
-                                                            nhead=nhead, 
+                                                            nhead=n_heads, 
                                                             batch_first=True)
 
-        self.fc = nn.Linear(in_features=dim_feedforward, out_features=encoded_dim)
+        # Update input features to account for all dimensions
+        self.fc = nn.Linear(in_features=self.d_model * self.Nc, out_features=encoded_dim)
         
         self.sigmoid = nn.Sigmoid()
         self.name = "TransformerAE"
 
     def forward(self, x):
         # x.shape = (batch_size, 2, Nc, Nt)
-        print(f'inside encoder, before conv_block1: {x.shape}')
         out = self.conv_block1(x)
-        print(f'inside encoder, after conv_block1: {out.shape}')
+        # out.shape = (batch_size, n_out_channels, Nc, Nt)
 
+        # Reshape to (batch_size, Nc, d_model)
+        out = out.permute(0, 2, 1, 3)  # (batch_size, Nc, n_out_channels, Nt)
         out = out.reshape(out.shape[0], self.Nc, self.d_model)
-        print(f'after reshape: {out.shape}')
+        # out.shape = (batch_size, Nc, d_model)
         
         out = self.transformer_layer1(out)
+        # out.shape = (batch_size, Nc, d_model)
         out = self.transformer_layer2(out)
+        # out.shape = (batch_size, Nc, d_model)
         out = self.transformer_layer3(out)
+        # out.shape = (batch_size, Nc, d_model)
 
-        print(f'out.shape: {out.shape}')
-        out = self.sigmoid(self.fc(out.reshape(out.shape[0], -1, 1)))
-        print(f'out.shape: {out.shape}')
+        # Flatten all dimensions except batch
+        out = out.reshape(out.shape[0], -1)  # (batch_size, Nc * d_model)
+        out = self.sigmoid(self.fc(out))  # (batch_size, encoded_dim)
+        # out.shape = (batch_size, encoded_dim)
         
         return out
 
 class Decoder(nn.Module):
-    # input: (batch_size, Nc, Nt) channel matrix
-    # output: (batch_size, encoded_dim) codeword
-    # CSI_NET
+    # input: (batch_size, encoded_dim) codeword
+    # output: (batch_size, 2, Nc, Nt) channel matrix
     def __init__(self, encoded_dim, Nc=100, Nrt=64):
         super().__init__()
         self.name = "TransformerAE-Decoder"
         self.Nc = Nc
         self.Nrt = Nrt
         self.n_out_channels = 8
-
         self.d_model = self.Nrt * self.n_out_channels
 
         self.fc = nn.Linear(in_features=encoded_dim, out_features=self.d_model)
@@ -88,8 +93,6 @@ class Decoder(nn.Module):
                                                             dim_feedforward=dim_feedforward, 
                                                             nhead=nhead, 
                                                             batch_first=True)
-
-        
         
         self.conv_block1 = nn.Conv2d(in_channels=self.n_out_channels, 
                       out_channels=2, 
@@ -97,25 +100,30 @@ class Decoder(nn.Module):
                       stride=1, 
                       padding=0, 
                       bias=True)
-        
-        
 
     def forward(self, x):
         # x.shape = (batch_size, encoded_dim)
-        print(f'x.shape: {x.shape}')
-        out = self.fc(x)
-        print(f'after fc: {out.shape}')
+        out = self.fc(x)  # (batch_size, d_model)
+        # out.shape = (batch_size, d_model)
 
-        out = out.reshape(out.shape[0], self.Nc, self.d_model)
-        print(f'after reshape, before transformer: {out.shape}')
+        # Expand to sequence length Nc
+        out = out.unsqueeze(1).expand(-1, self.Nc, -1)  # (batch_size, Nc, d_model)
+        # out.shape = (batch_size, Nc, d_model)
         
         out = self.transformer_layer1(out)
+        # out.shape = (batch_size, Nc, d_model)
         out = self.transformer_layer2(out)
+        # out.shape = (batch_size, Nc, d_model)
         out = self.transformer_layer3(out)
+        # out.shape = (batch_size, Nc, d_model)
 
-        print(f'after transformer: {out.shape}')
+        # Reshape for conv layer
+        out = out.reshape(out.shape[0], self.Nc, self.n_out_channels, self.Nrt)
+        # out.shape = (batch_size, Nc, n_out_channels, Nrt)
+        out = out.permute(0, 2, 1, 3)  # (batch_size, n_out_channels, Nc, Nrt)
+        # out.shape = (batch_size, n_out_channels, Nc, Nrt)
         out = self.conv_block1(out)
-        print(f'after conv: {out.shape}')
+        # out.shape = (batch_size, 2, Nc, Nrt)
         
         return out
     
@@ -171,16 +179,12 @@ class TransformerAE(nn.Module):
     
     def forward(self, x):
         # x.shape = (batch_size, 2, Nc, Nt)
-        print(f'x.shape: {x.shape}')
-        x_t = x.permute(0, 2, 3, 1)
-        print(f'x_t.shape before encoder: {x_t.shape}')
-        encoded_vector = self.encoder(x_t)
+        # print(f'x.shape: {x.shape}')
+        encoded_vector = self.encoder(x)
         if self.quantize:
             encoded_vector = quantize(encoded_vector, self.k_bits)
         x_recovered = self.decoder(encoded_vector)
-        print(f'x_recovered.shape: {x_recovered.shape}')
-        x_recovered_t = x_recovered.permute(0, 3, 1, 2)
-        print(f'x_recovered_t.shape: {x_recovered_t.shape}')
-
-        return encoded_vector, x_recovered_t
+        # print(f'x_recovered.shape: {x_recovered.shape}')
+        
+        return encoded_vector, x_recovered
     
