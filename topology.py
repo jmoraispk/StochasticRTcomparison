@@ -27,9 +27,9 @@ cfg = DataConfig(
     n_tx = 32,
     snr = 50,
     batch_size = 10, 
-    normalize = False,
-    # normalize = 'dataset-mean-var-complex',
-    # normalize = 'dataset-mean-var'
+    # normalize = False,
+    normalize = 'dataset-mean-var-complex',
+    # normalize = 'dataset-mean-precise'
     # per 'datapoint', 'dataset-minmax', 
     # 'dataset-mean-around-order', 'dataset-mean-precise',
     # 'dataset-mean-var',
@@ -46,7 +46,7 @@ cfg.rt_uniform_steps = [2, 2]
 # TR 38.901, x is : ["A", "B", "C", "D", "E"] 
 # ch_models = ['CDL-A', 'CDL-B', 'CDL-C', 'CDL-D', 'CDL-E', 
 #              'TDL-A', 'TDL-B', 'TDL-C', 'Rayleigh', 'UMa', 'UMi']
-ch_models = ['UMa']
+ch_models = ['CDL-D', 'UMa']
 
 # Ray tracing scenarios
 rt_scens = ['asu_campus_3p5'] # add '!1' at the end to cue tx-id = 1
@@ -79,6 +79,11 @@ plot_umap_embeddings(umap_embeddings, labels, models, plot_points=cfg.plot_point
 plot_umap_embeddings(umap_embeddings, labels, models[::-1], 
                      full_model_list=models, plot_points=cfg.plot_points,
                      title="UMAP Embeddings (All Data) - plot order flipped")
+
+# UMAP with flipped plot order (better visualization of what's inside what)
+# plot_umap_embeddings(umap_embeddings, labels, [models[2], models[0], models[1]], 
+#                      full_model_list=models, plot_points=cfg.plot_points,
+#                      title="UMAP Embeddings (All Data) - plot order flipped")
 
 xmin, xmax = plt.gca().get_xlim()
 ymin, ymax = plt.gca().get_ylim()
@@ -259,8 +264,13 @@ model_indices = np.where(labels == models.index(single_model))[0]
 single_model_embeddings_e = umap_embeddings[model_indices]
 plot_umap_heatmap(single_model_embeddings_e, single_model, (xmin, xmax), (ymin, ymax))
 
+single_model = 'CDL-D'
+model_indices = np.where(labels == models.index(single_model))[0]
+single_model_embeddings_e = umap_embeddings[model_indices]
+plot_umap_heatmap(single_model_embeddings_e, single_model, (xmin, xmax), (ymin, ymax))
 
-#%% Sampling method using RT as baseline for UMa/UMi parameterization
+
+#%% [Part 1] Sampling method using RT as baseline for UMa/UMi parameterization
 
 # TODO: put this inside data_gen.py as a load_based_on_rt_model
 
@@ -316,8 +326,7 @@ print(f"After final sampling: {dataset_t.n_ue} UEs")
 
 mat_rt = dataset_t.compute_channels(ch_params)
 
-#%%
-# 2- Generate UMa/UMi data
+#%% [Part 2] Generate UMa/UMi data
 
 def process_batch(dm_dataset, batch_idxs, los_status, config, stochastic_model):
     """Process a single batch of users with specified LoS status.
@@ -389,7 +398,7 @@ ch_data = np.concatenate(ch_data_list, axis=0)
 mat_stochastic = ch_data[:, :, :, config.freq_selection].astype(np.complex64)
 print(f"Generated {mat_stochastic.shape[0]} samples for {stochastic_model}")
 
-#%%
+#%% [Part 3] Normalize data and prepare for UMAP
 
 # 2.5- Normalize data
 data_matrices[rt_model] = normalize_data(mat_rt, mode=cfg.normalize)
