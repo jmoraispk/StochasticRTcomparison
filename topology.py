@@ -27,7 +27,8 @@ cfg = DataConfig(
     n_tx = 32,
     snr = 50,
     batch_size = 10, 
-    normalize = 'dataset-mean-var-complex'
+    normalize = False,
+    # normalize = 'dataset-mean-var-complex',
     # normalize = 'dataset-mean-var'
     # per 'datapoint', 'dataset-minmax', 
     # 'dataset-mean-around-order', 'dataset-mean-precise',
@@ -279,6 +280,7 @@ stochastic_model = 'UMa'
 config = cfg
 steps = cfg.rt_uniform_steps
 SUBCARRIERS_PER_PRB = 12
+data_matrices = {}
 
 # 1- Load RT data
 print(f"Loading ray tracing data for {rt_model}...")
@@ -309,76 +311,88 @@ print(f"After uniform sampling: {dataset_u.n_ue} UEs")
 dataset_a = dataset_u.subset(dataset_u.get_active_idxs())
 print(f"After active user filtering: {dataset_a.n_ue} UEs")
 
-#mat = dataset_t.compute_channels(ch_params)
-
-# Sample RT data
-usr_idxs = 0
-
-# TODO: try to do all sampling at once. If doesn't work, distribute in batches.
 dataset_t = dataset_a.subset(np.arange(10_000))
 print(f"After final sampling: {dataset_t.n_ue} UEs")
+
+mat_rt = dataset_t.compute_channels(ch_params)
 
 #%%
 # 2- Generate UMa/UMi data
 
-# 2.1- Create LoS & NLoS Topologies
-b_size = 1 # batch size
-bs_pos = dataset_t.tx_pos.reshape((b_size, 1, 3))
-bs_ori = dataset_t.tx_ori.reshape((b_size, 1, 3)) * np.pi / 180 # to radians
+def process_batch(dm_dataset, batch_idxs, los_status, config, stochastic_model):
+    """Process a single batch of users with specified LoS status.
+    
+    Args:
+        dm_dataset: DeepMIMO dataset containing user positions and orientations
+        batch_idxs: Indices of users to process in this batch
+        los_status: 1 for LoS, 0 for NLoS
+        config: Configuration object
+        stochastic_model: Name of the stochastic model to use
+        
+    Returns:
+        Channel data for the batch
+    """
+    # Base station position and orientation
+    bs_pos = dm_dataset.tx_pos.reshape((1, 1, 3))
+    bs_ori = dm_dataset.tx_ori.reshape((1, 1, 3)) * np.pi / 180  # to radians
+    
+    # Process users
+    rx_pos = dm_dataset.rx_pos[batch_idxs].reshape((1, -1, 3))
+    rx_ori = np.zeros((1, len(batch_idxs), 3))
+    
+    topology = TopologyConfig(
+        ut_loc=tf.cast(rx_pos, tf.float32),
+        bs_loc=tf.cast(bs_pos, tf.float32),
+        ut_orientations=tf.cast(rx_ori, tf.float32),
+        bs_orientations=tf.cast(bs_ori, tf.float32),
+        ut_velocities=tf.cast(rx_ori, tf.float32),
+        in_state=tf.cast(np.zeros((1, len(batch_idxs)), dtype=bool), tf.bool),
+        los=bool(los_status))
+    
+    # Create channel generator
+    ch_gen_params = dict(num_prbs=config.n_prbs, channel_name=stochastic_model, 
+                        batch_size=1, n_rx=config.n_rx, n_tx=config.n_tx,
+                        normalize=False, seed=config.seed, n_ue=len(batch_idxs))
+    
+    ch_gen = SionnaChannelGenerator(**ch_gen_params, topology=topology)
+    
+    # Sample data
+    ch_data = sample_ch(ch_gen, config.n_prbs, 1, len(batch_idxs), 
+                        config.snr, config.n_rx, config.n_tx)
+    
+    return ch_data
 
-# LoS
+# 2.1- Get LoS & NLoS indices
 los_idxs = np.where(dataset_t.los == 1)[0]
-rx_pos_los = dataset_t.rx_pos[los_idxs].reshape((b_size, -1, 3))  # Reshape to [batch, num_ut, 3]
-rx_ori_los = np.zeros((b_size, len(los_idxs), 3))  # same as velocities
-
-topology_los = TopologyConfig(
-    ut_loc=tf.cast(rx_pos_los, tf.float32),
-    bs_loc=tf.cast(bs_pos, tf.float32),
-    ut_orientations=tf.cast(rx_ori_los, tf.float32),
-    bs_orientations=tf.cast(bs_ori, tf.float32),
-    ut_velocities=tf.cast(rx_ori_los, tf.float32),
-    in_state=tf.cast(np.zeros((b_size, len(los_idxs)), dtype=bool), tf.bool),
-    los=True)
-
-# NLoS
 nlos_idxs = np.where(dataset_t.los == 0)[0]
-rx_pos_nlos = dataset_t.rx_pos[nlos_idxs].reshape((b_size, -1, 3))  # Reshape to [batch, num_ut, 3]
-rx_ori_nlos = np.zeros((b_size, len(nlos_idxs), 3))  # same as velocities
 
-topology_nlos = TopologyConfig(
-    ut_loc=tf.cast(rx_pos_nlos, tf.float32),
-    bs_loc=tf.cast(bs_pos, tf.float32),
-    ut_orientations=tf.cast(rx_ori_nlos, tf.float32),
-    bs_orientations=tf.cast(bs_ori, tf.float32),
-    ut_velocities=tf.cast(rx_ori_nlos, tf.float32),
-    in_state=tf.cast(np.zeros((b_size, len(nlos_idxs)), dtype=bool), tf.bool),
-    los=False)
+# 2.2- Process users in batches
+batch_size = 200
+ch_data_list = []
 
-# 2.2- Create LoS & NLos channel generators
-ch_gen_params = dict(num_prbs=config.n_prbs, channel_name=stochastic_model, 
-                     batch_size=1, n_rx=config.n_rx, n_tx=config.n_tx,
-                     normalize=False, seed=config.seed)
+# Process all LoS users first, then all NLoS users
+for los_status, idxs in [(1, los_idxs), (0, nlos_idxs)]:
+    # Create batches of indices
+    batches = [idxs[i:i + batch_size] for i in range(0, len(idxs), batch_size)]
+    status_str = "LoS" if los_status == 1 else "NLoS"
+    
+    # Process each batch
+    for i, batch in enumerate(batches):
+        print(f"Processing {status_str} batch {i + 1}/{len(batches)}...")
+        ch_data = process_batch(dataset_t, batch, los_status, config, stochastic_model)
+        ch_data_list.append(ch_data)
 
-print(f"Creating channel generator for {stochastic_model} LoS...")
-los_ch_gen = SionnaChannelGenerator(**ch_gen_params, topology=topology_los)
+# 2.3- Concatenate results
+ch_data = np.concatenate(ch_data_list, axis=0)
 
-print(f"Creating channel generator for {stochastic_model} NLos...")
-nlos_ch_gen = SionnaChannelGenerator(**ch_gen_params, topology=topology_nlos)
+# 2.4- Process final matrices
+mat_stochastic = ch_data[:, :, :, config.freq_selection].astype(np.complex64)
+print(f"Generated {mat_stochastic.shape[0]} samples for {stochastic_model}")
 
-# 2.3- Sample data for LoS & NLoS (batch size = 1, since we must sample all users at once)
-print(f"Sampling {len(los_idxs)} LoS samples...")
-los_ch_data = sample_ch(los_ch_gen, config.n_prbs, 1, len(los_idxs), 
-                        config.snr, config.n_rx, config.n_tx)
+#%%
 
-print(f"Sampling {len(nlos_idxs)} NLos samples...")
-nlos_ch_data = sample_ch(nlos_ch_gen, config.n_prbs, 1, len(nlos_idxs), 
-                        config.snr, config.n_rx, config.n_tx)
+# 2.5- Normalize data
+data_matrices[rt_model] = normalize_data(mat_rt, mode=cfg.normalize)
+data_matrices[stochastic_model] = normalize_data(mat_stochastic, mode=cfg.normalize)
 
-los_mat = los_ch_data[:, :, :, config.freq_selection].astype(np.complex64)
-nlos_mat = nlos_ch_data[:, :, :, config.freq_selection].astype(np.complex64)
-mat = np.concatenate([los_mat, nlos_mat], axis=0)
-print(f"Generated {mat.shape[0]} samples for {rt_model}")
-
-# 2.4- Normalize data
-data_matrices[rt_model] = normalize_data(mat, mode=config.normalize)
-
+data_real, labels = prepare_umap_data(data_matrices, models, cfg.x_points, cfg.seed)
