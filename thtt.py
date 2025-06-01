@@ -19,14 +19,14 @@ import matplotlib.pyplot as plt
 DATA_FOLDER = 'data'
 N_TAPS = 16
 N_ANT = 32
-ENCODED_DIM = 32
+ENCODED_DIM = 64
 
-MATRIX_NAME = 'data_matrices_10k_mean-precise.pkl'
+MATRIX_NAME = 'data_matrices_10k_complex.pkl'
 MAT_PATH = os.path.join(DATA_FOLDER, MATRIX_NAME)
-DATASET_MAIN_FOLDER = 'channel_datasets_10k_mean-precise'
+DATASET_MAIN_FOLDER = 'channel_datasets_10k_complex'
 
 # Example usage
-ch_models = ['CDL-B', 'UMa']
+ch_models = ['CDL-D', 'UMa']
 rt_scens = ['asu_campus_3p5']
 models = rt_scens + ch_models
 
@@ -41,7 +41,7 @@ cfg = DataConfig(
     n_rx = 1,
     n_tx = N_ANT,
     snr = 50,
-    normalize = 'dataset-mean-precise'
+    normalize = 'dataset-mean-var-complex',
 )
 
 # UMAP parameters
@@ -75,7 +75,8 @@ from thtt_utils import (
 
 # Train models
 all_res = train_models(models, data_matrices, DATASET_MAIN_FOLDER, 
-                       encoded_dim=ENCODED_DIM, NC=N_TAPS, num_epochs=5)
+                       encoded_dim=ENCODED_DIM, NC=N_TAPS, num_epochs=5,
+                       train_batch_size=16)
 
 #%% Plot Training Results
 
@@ -99,6 +100,31 @@ print("\nTest Results (NMSE in dB):")
 print("==========================")
 print(df.to_string())
 
+#%% Cross-fine-tune
+
+x = 10
+data_percentage = 0
+
+for source in []:
+    for target in []:
+        if target == source:
+            continue
+        model_path = 'channel_datasets_uma_asu3/model_UMa/model_encoded-dim=128_model=UMa.path'
+
+        # Train UMa model with pre-trained weights
+        uma_test_nmse, uma_name = train_with_percentages(
+            'UMa', data_matrices, DATASET_MAIN_FOLDER,
+            percentages=[data_percentage],
+            model_path=uma_model_path, load_model=True
+        )
+
+
+# This should TEST the fine-tuned models!!!! (CHECK)
+all_test_results, results_matrix = \
+    cross_test_models(models, data_matrices, DATASET_MAIN_FOLDER, 
+                      encoded_dim=ENCODED_DIM, NC=N_TAPS, Nt=N_ANT)
+
+
 #%% Train with Different Percentages of Data
 
 # Train models with different percentages
@@ -113,16 +139,12 @@ uma_model_path = 'channel_datasets_uma_asu3/model_UMa/model_encoded-dim=128_mode
 # Train UMa model with pre-trained weights
 uma_test_nmse, uma_name = train_with_percentages(
     'UMa', data_matrices, DATASET_MAIN_FOLDER,
-    percentages=percentages,
-    uma_model_path=uma_model_path, load_model=True
-)
+    percentages=percentages, load_model=True, model_path=uma_model_path)
 
 # Train UMa model from scratch
 rand_test_nmse, rand_name = train_with_percentages(
     'UMa', data_matrices, DATASET_MAIN_FOLDER,
-    percentages=percentages,
-    load_model=False
-)
+    percentages=percentages, load_model=False)
 
 # Plot results
 plt.figure(figsize=(10, 6))

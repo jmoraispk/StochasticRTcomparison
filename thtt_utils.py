@@ -307,7 +307,7 @@ def plot_test_matrix(results_matrix: np.ndarray, models: list, save_path: str = 
     plt.show()
 
 def train_with_percentages(model_name: str, data_matrices: dict, dataset_main_folder: str,
-                         percentages: list, uma_model_path: str = None, load_model: bool = False,
+                         percentages: list, load_model: bool = False, model_path: str = None, 
                          epochs: int = 60) -> tuple:
     """Train model with different percentages of data.
     
@@ -316,8 +316,8 @@ def train_with_percentages(model_name: str, data_matrices: dict, dataset_main_fo
         data_matrices: Dictionary of data matrices
         dataset_main_folder: Base folder for datasets
         percentages: List of percentages to use for training
-        uma_model_path: Path to pre-trained UMa model (if load_model is True)
         load_model: Whether to load pre-trained model
+        model_path: Path to pre-trained UMa model (if load_model is True)
         epochs: Number of training epochs
         
     Returns:
