@@ -2,6 +2,32 @@
 
 This project compares stochastic channel models with ray tracing models using UMAP visualization and machine learning techniques.
 
+## Install Dependencies
+
+```
+# sionna environment (for topology.py and data generation for thtt.py)
+mamba create -n env1_sionna python=3.11
+mamba activate env1_sionna
+pip install uv
+uv pip install -r env1_sionna env1_sionna_requirements.txt
+
+# For environment 21, check https://docs.rapids.ai/install/
+pip install \
+    --extra-index-url=https://pypi.nvidia.com \
+    "cuml-cu12==25.4.*"
+
+# pytorch environment (for thtt.py)
+mamba create -n env2_pytorch python=3.11
+mamba activate env2_pytorch
+uv pip install -r env2_pytorch env2_pytorch_requirements.txt
+uv pip install -e .   ( in deepmimo env)
+uv pip install jupyter ipykernel
+
+############# Install DeepMIMO command (in both env requirements)
+# pip install deepmimo==4.0.0a3
+
+```
+
 ## Project Structure
 
 ```
@@ -12,22 +38,22 @@ This project compares stochastic channel models with ray tracing models using UM
 │   └── outlier detection       # Functions for detecting and removing outliers
 │
 ├── topology.py                 # UMAP visualization and analysis
-│   ├── Data loading           # Load and prepare data using DataConfig
-│   ├── UMAP computation       # Compute UMAP embeddings
-│   ├── Visualization          # Plot embeddings with/without outliers
-│   └── Partial UMAP fitting   # Fit UMAP on one model, transform another
+│   ├── Data loading            # Load and prepare data using DataConfig
+│   ├── UMAP computation        # Compute UMAP embeddings
+│   ├── Visualization           # Plot embeddings with/without outliers
+│   └── Partial UMAP fitting    # Fit UMAP on one model, transform another
 │
-├── topology_utils.py          # Visualization utilities
-│   └── plot_umap_embeddings() # Function for plotting UMAP embeddings
+├── topology_utils.py           # Visualization utilities
+│   └── plot_umap_embeddings()  # Function for plotting UMAP embeddings
 │
-├── thtt.py                    # Training and testing
-│   ├── Data preparation       # Prepare data for training
-│   ├── Model training         # Train models on different datasets
-│   └── Cross-testing         # Test models across different datasets
+├── thtt.py                     # Training and testing
+│   ├── Data preparation        # Prepare data for training
+│   ├── Model training          # Train models on different datasets
+│   └── Cross-testing           # Test models across different datasets
 │
-└── thtt_utils.py             # Training utilities
+└── thtt_utils.py               # Training utilities
     ├── convert_channel_angle_delay()  # Convert channel data format
-    └── train_val_test_split()        # Split data for training
+    └── train_val_test_split()         # Split data for training
 ```
 
 ## Data Flow
