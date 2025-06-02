@@ -8,7 +8,7 @@ stochastic and ray tracing channel models.
 
 #%% Import Modules
 import sys
-sys.path.insert(0, '/mnt/c/Users/jmora/Documents/GitHub/StochasticRTcomparison/')
+# sys.path.insert(0, '/mnt/c/Users/jmora/Documents/GitHub/StochasticRTcomparison/')
 
 import os
 import pickle
