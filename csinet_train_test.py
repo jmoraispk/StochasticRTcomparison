@@ -10,7 +10,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
 from collections import OrderedDict
 from tqdm import tqdm
 from scipy.io import savemat
@@ -57,7 +56,6 @@ def train_model(
     encoded_dim=16,
     num_epoch=200,
     lr=1e-2,
-    if_writer=False,
     model_path_save=None,
     model_path_load=None,
     load_model=False,
@@ -76,7 +74,6 @@ def train_model(
         encoded_dim: Dimension of encoded representation
         num_epoch: Number of training epochs
         lr: Learning rate
-        if_writer: Whether to use tensorboard writer
         model_path_save: Path to save model
         model_path_load: Path to load model
         load_model: Whether to load model
@@ -108,13 +105,6 @@ def train_model(
     
     if save_model and not model_path_save:
         model_path_save = "checkpoint/" + comment + ".path"
-
-    # print model summary
-    # if_writer = False
-    if if_writer:
-        # summary(net, input_data=torch.zeros(16, 2, Nc, Nt).to(device))
-        writer = SummaryWriter(log_dir="logs/" + comment)
-        # writer =0
 
     # set up loss function and optimizer
     criterion = nn.MSELoss()
@@ -163,7 +153,7 @@ def train_model(
         if val_loader is None:
             continue  # no validation is needed
 
-        if epoch >= num_epoch - 50 or if_writer:
+        if epoch >= num_epoch - 50:
             # validation
             net.eval()
             with torch.no_grad():
@@ -195,14 +185,7 @@ def train_model(
             all_val_nmse.append(val_nmse.item())
             print("val_loss={:.3e}".format(val_loss), flush=True)
             print("val_nmse={:.3f}".format(val_nmse), flush=True)
-            if if_writer:
-                writer.add_scalar("Loss/train", running_loss, epoch)
-                writer.add_scalar("Loss/test", val_loss, epoch)
-                writer.add_scalar("NMSE/train", running_nmse, epoch)
-                writer.add_scalar("NMSE/test", val_nmse, epoch)
-
-    if if_writer:
-        writer.close()
+            
     if model_path_save:
         torch.save(net.state_dict(), model_path_save)
 
@@ -363,7 +346,6 @@ def train_model_loop(
     Nt=64,
     encoded_dim=32,
     num_epoch=110,
-    tensorboard_writer=True,
     model_path_save=None,
     model_path_load=None,
     save_model=True,
@@ -389,7 +371,6 @@ def train_model_loop(
         Nt: Number of antennas
         encoded_dim: Dimension of encoded representation
         num_epoch: Number of training epochs
-        tensorboard_writer: Whether to use tensorboard
         model_path_save: Path to save model
         model_path_load: Path to load model
         save_model: Whether to save model
@@ -438,7 +419,6 @@ def train_model_loop(
                 Nt=Nt,
                 encoded_dim=encoded_dim,
                 num_epoch=num_epoch,
-                if_writer=tensorboard_writer,
                 model_path_save=model_path_save,
                 model_path_load=model_path_load,
                 save_model=save_model,
