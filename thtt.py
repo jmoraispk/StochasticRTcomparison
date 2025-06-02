@@ -74,9 +74,9 @@ from thtt_utils import (
 # NC=16 * n_ant=32 * 2 -> 32 encoded dim(32x reduction)
 
 # Train models
-all_res = train_models(models, data_matrices, DATASET_MAIN_FOLDER, 
-                       encoded_dim=ENCODED_DIM, NC=N_TAPS, num_epochs=5,
-                       train_batch_size=16)
+all_res, model_paths = train_models(models, data_matrices, DATASET_MAIN_FOLDER, 
+                                    encoded_dim=ENCODED_DIM, NC=N_TAPS,
+                                    num_epochs=5, train_batch_size=16)
 
 #%% Plot Training Results
 
@@ -102,27 +102,26 @@ print(df.to_string())
 
 #%% Cross-fine-tune
 
-x = 10
-data_percentage = 0
-
-for source in []:
-    for target in []:
-        if target == source:
+data_percentage = 0.1
+fine_tuned_models_folder = DATASET_MAIN_FOLDER + '_finetuned'
+for src_idx, source_model in enumerate(models):
+    for target_model in models:
+        if target_model == source_model:
             continue
-        model_path = 'channel_datasets_uma_asu3/model_UMa/model_encoded-dim=128_model=UMa.path'
 
         # Train UMa model with pre-trained weights
         uma_test_nmse, uma_name = train_with_percentages(
-            'UMa', data_matrices, DATASET_MAIN_FOLDER,
-            percentages=[data_percentage],
-            model_path=uma_model_path, load_model=True
+            target_model, data_matrices, DATASET_MAIN_FOLDER,
+            models_folder=fine_tuned_models_folder,
+            percentages=[data_percentage], load_model=True,
+            model_path=model_paths[src_idx], epochs=20,
         )
 
-
-# This should TEST the fine-tuned models!!!! (CHECK)
+# This should TEST the fine-tuned models!!!!
 all_test_results, results_matrix = \
     cross_test_models(models, data_matrices, DATASET_MAIN_FOLDER, 
-                      encoded_dim=ENCODED_DIM, NC=N_TAPS, Nt=N_ANT)
+                      models_folder=fine_tuned_models_folder,
+                      encoded_dim=ENCODED_DIM, NC=N_TAPS, Nt=N_ANT, skip_same=True)
 
 
 #%% Train with Different Percentages of Data

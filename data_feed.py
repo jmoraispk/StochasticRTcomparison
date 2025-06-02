@@ -1,4 +1,6 @@
 """
+Data Feed
+
 This module provides a DataFeed class for loading and processing channel data 
 from a specified root directory and CSV file. It includes functionality for 
 creating samples from the data and loading them into a PyTorch Dataset.
@@ -16,11 +18,14 @@ from einops import rearrange
 def create_samples(data_root, csv_path, random_state, num_data_point, portion, select_data_idx):
     # load channel data
     channel_ad_clip = loadmat(data_root+'/channel_ad_clip.mat')['all_channel_ad_clip']
+    print(f"Debug - channel_ad_clip shape: {channel_ad_clip.shape}")
 
     # load data index
     if select_data_idx is None:
         # data_idx = pd.read_csv(os.path.join(data_root, csv_path))["data_idx"].to_numpy()
         data_idx = np.loadtxt(os.path.join(data_root, csv_path), dtype=int)
+        print(f"Debug - data_idx shape: {data_idx.shape}")
+        print(f"Debug - data_idx max value: {np.max(data_idx)}")
     else:
         data_idx = select_data_idx
         
@@ -30,6 +35,8 @@ def create_samples(data_root, csv_path, random_state, num_data_point, portion, s
         print(f'Dropping 0-channel indices {idxs_to_del}')
     data_idx_filtered = np.array([idx for idx in data_idx if idx not in idxs_to_del])
     data_idx = data_idx_filtered.astype(int)
+    print(f"Debug - After filtering, data_idx shape: {data_idx.shape}")
+    print(f"Debug - After filtering, data_idx max value: {np.max(data_idx)}")
     
     channel_ad_clip = channel_ad_clip[data_idx, ...]
 
@@ -52,7 +59,6 @@ def create_samples(data_root, csv_path, random_state, num_data_point, portion, s
     
     channel_ad_clip = channel_ad_clip / np.expand_dims(channel_ad_clip[:, 0, 0] / 
                                                         np.abs(channel_ad_clip[:, 0, 0]), (1,2))
-
 
     return channel_ad_clip, data_idx
 

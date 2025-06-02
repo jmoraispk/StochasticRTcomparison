@@ -5,7 +5,7 @@ and testing in the channel model comparison project.
 """
 
 import os
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -70,6 +70,7 @@ def train_val_test_split(n_samples: int,
 def train_models(models: list, 
                 data_matrices: dict,
                 dataset_main_folder: str,
+                models_folder: Optional[str] = None,
                 encoded_dim: int = 128,
                 NC: int = 16,
                 train_batch_size: int = 16,
@@ -81,7 +82,7 @@ def train_models(models: list,
                 n_train_samples: int = 10240*20,
                 n_val_samples: int = 10000,
                 n_test_samples: int = 10000,
-                seed: int = 2) -> list:
+                seed: int = 2) -> Tuple[list, List[str]]:
     """
     Train models for each area.
     
@@ -104,8 +105,13 @@ def train_models(models: list,
         
     Returns:
         List of training results for each model
+        List of trained model paths
     """
+    models_folder = dataset_main_folder if not models_folder else models_folder
+    os.makedirs(models_folder, exist_ok=True)
+
     all_res = []
+    all_model_names = []
     
     for model_idx, model in enumerate(models):
         print(f'Training in area {model_idx} ({model})')
@@ -128,7 +134,7 @@ def train_models(models: list,
                            val_csv=os.path.join(dataset_folder, 'val_data_idx.csv'),
                            test_csv=os.path.join(dataset_folder, 'test_data_idx.csv'))
         
-        model_name = os.path.join(dataset_folder, f'model_encoded-dim={encoded_dim}_model={model}.path')
+        model_name = os.path.join(models_folder, f'model_encoded-dim={encoded_dim}_model={model}.path')
 
         # Train model
         ret = train_model_loop(
@@ -154,16 +160,19 @@ def train_models(models: list,
             n_refine_nets=n_refine_nets
         )
         all_res.append(ret)
+        all_model_names.append(model_name)
         
-    return all_res
+    return all_res, all_model_names
 
 def cross_test_models(models: list,
                      data_matrices: dict,
                      dataset_main_folder: str,
+                     models_folder: Optional[str] = None,
                      encoded_dim: int = 128,
                      NC: int = 16,
                      Nt: int = 32,
-                     seed: int = 2) -> Tuple[List[Dict], np.ndarray]:
+                     seed: int = 2,
+                     skip_same: bool = True) -> Tuple[List[Dict], np.ndarray]:
     """
     Test models across different datasets.
     
@@ -171,6 +180,7 @@ def cross_test_models(models: list,
         models: List of model names
         data_matrices: Dictionary of data matrices
         dataset_main_folder: Base folder for datasets
+        models_folder: Folder where to find the models
         encoded_dim: Dimension of encoded representation
         NC: Number of delay taps
         Nt: Number of antennas
@@ -179,6 +189,7 @@ def cross_test_models(models: list,
     Returns:
         Tuple of (list of test results, results matrix)
     """
+    models_folder = dataset_main_folder if not models_folder else models_folder
     all_test_results = []
     n_models = len(models)
     results_matrix = np.zeros((n_models, n_models))
@@ -196,9 +207,12 @@ def cross_test_models(models: list,
                            test_csv=os.path.join(tgt_dataset_folder, 'all.csv'))
         
         for model_idx2, model2 in enumerate(models):  # source dataset
-            src_dataset_folder = os.path.join(dataset_main_folder, f'model_{model2}')
+            if skip_same and model2 == model:
+                continue
+                
+            src_dataset_folder = os.path.join(models_folder, f'model_{model2}')
             src_model_path = os.path.join(src_dataset_folder, 
-                                        f'model_encoded-dim={encoded_dim}_model={model2}.path')
+                                          f'model_encoded-dim={encoded_dim}_model={model2}.path')
             
             # Use appropriate test set
             csv_name = 'test_data_idx.csv' if model_idx == model_idx2 else 'all.csv'
@@ -307,8 +321,8 @@ def plot_test_matrix(results_matrix: np.ndarray, models: list, save_path: str = 
     plt.show()
 
 def train_with_percentages(model_name: str, data_matrices: dict, dataset_main_folder: str,
-                         percentages: list, load_model: bool = False, model_path: str = None, 
-                         epochs: int = 60) -> tuple:
+                           percentages: list, load_model: bool = False, model_path: str = None, 
+                           epochs: int = 60, models_folder: Optional[str] = None) -> tuple:
     """Train model with different percentages of data.
     
     Args:
@@ -323,6 +337,8 @@ def train_with_percentages(model_name: str, data_matrices: dict, dataset_main_fo
     Returns:
         Tuple of (test_nmse_list, model_name)
     """
+    models_folder = dataset_main_folder if not models_folder else models_folder
+
     # Get data for the model
     model_data = data_matrices[model_name]
     n_samp = model_data.shape[0]
@@ -343,42 +359,45 @@ def train_with_percentages(model_name: str, data_matrices: dict, dataset_main_fo
     for p, indices in nested_indices.items():
         print(f"{p*100}% of data: {len(indices)} samples")
     
-    # Split remaining data for validation and testing
-    val_idxs = all_indices[int(n_samp*.8):int(n_samp*.9)]
-    test_idxs = all_indices[int(n_samp*.9):]
+    # # Split remaining data for validation and testing
+    # val_idxs = all_indices[int(n_samp*.8):int(n_samp*.9)]
+    # test_idxs = all_indices[int(n_samp*.9):]
     
-    # Generate CSV indices for each portion
-    dataset_folder = os.path.join(dataset_main_folder, f'model_{model_name}')
-    os.makedirs(dataset_folder, exist_ok=True)
+    # # Generate CSV indices for each portion
+    # dataset_folder = os.path.join(dataset_main_folder, f'model_{model_name}')
+    # os.makedirs(dataset_folder, exist_ok=True)
     
-    for p in percentages:
-        df1 = pd.DataFrame(nested_indices[p], columns=["data_idx"])
-        df1.to_csv(os.path.join(dataset_folder, f'train_data_idx_v2_{p*100}.csv'), index=False)
+    # for p in percentages:
+    #     df1 = pd.DataFrame(nested_indices[p], columns=["data_idx"])
+    #     df1.to_csv(os.path.join(dataset_folder, f'train_data_idx_v2_{p*100}.csv'), index=False)
     
-    # Save val and test indices
-    df2 = pd.DataFrame(val_idxs, columns=["data_idx"])
-    df3 = pd.DataFrame(test_idxs, columns=["data_idx"])
-    df2.to_csv(os.path.join(dataset_folder, 'val_data_idx_v2.csv'), index=False)
-    df3.to_csv(os.path.join(dataset_folder, 'test_data_idx_v2.csv'), index=False)
+    # # Save val and test indices
+    # df2 = pd.DataFrame(val_idxs, columns=["data_idx"])
+    # df3 = pd.DataFrame(test_idxs, columns=["data_idx"])
+    # df2.to_csv(os.path.join(dataset_folder, 'val_data_idx_v2.csv'), index=False)
+    # df3.to_csv(os.path.join(dataset_folder, 'test_data_idx_v2.csv'), index=False)
     
+
     # Train with different percentages
     test_nmse_list = []
     
     for p in tqdm(percentages, desc=f"Training {model_name} with different percentages"):
+        # Create a subset of the data matrix for this percentage
+        subset_data = {model_name: model_data[nested_indices[p]]}
+        
         # Train model
-        res = train_models(
+        res, _ = train_models(
             [model_name], 
-            {model_name: data_matrices[model_name]},
+            subset_data,
             dataset_main_folder,
-            train_csv=f'train_data_idx_v2_{p*100}.csv',
-            val_csv='val_data_idx_v2.csv',
-            test_csv='test_data_idx_v2.csv',
-            load_model=load_model,
-            model_path_load=uma_model_path if load_model else None,
-            num_epoch=epochs
+            models_folder=models_folder,
+            num_epochs=epochs,
+            n_train_samples=len(nested_indices[p]),
+            n_val_samples=int(len(nested_indices[p]) * 0.1),  # 10% for validation
+            n_test_samples=int(len(nested_indices[p]) * 0.1)  # 10% for testing
         )
         
         test_nmse_list.append(10 * np.log10(res[0]['test_nmse']))
         print(f'Data [{p*100}%]: {model_name} {test_nmse_list[-1]:.1f}dB')
     
-    return test_nmse_list, model_name 
+    return test_nmse_list, model_name
