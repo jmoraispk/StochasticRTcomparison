@@ -175,7 +175,8 @@ def normalize_data(data: np.ndarray, mode: str = 'datapoint') -> np.ndarray:
         norms_norm = (ch_norms[non_zero_ues] - min_norm) / (max_norm - min_norm)
         mat_norm = H_unit * norms_norm
     elif 'dataset-mean' in mode:
-        print(f'mean of not normalized data: {np.mean(np.abs(data))}')
+        print(f'mean of not normalized data: {np.mean(np.abs(data)):.2e}')
+        print(f'var of not normalized data: {np.var(np.abs(data)):.2e}')
         
         if 'complex' in mode:
             mean = np.mean(data)
@@ -193,14 +194,16 @@ def normalize_data(data: np.ndarray, mode: str = 'datapoint') -> np.ndarray:
         if 'complex' in mode:
             mat_norm = data - mean
 
-        print(f'mean of normalized data: {np.mean(np.abs(mat_norm))}')
+        print(f'mean of mean-normalized data: {np.mean(np.abs(mat_norm)):.2e}')
+        print(f'var of mean-normalized data: {np.var(np.abs(mat_norm)):.2e}')
         if 'var' in mode:
-            print(f'var of not normalized data: {np.var(np.abs(data))}')
             if mode == 'dataset-mean-var': # additionally, scale variance to 1
                 mat_norm /= np.std(np.abs(mat_norm))
             elif mode == 'dataset-mean-var-complex':
                 mat_norm = mat_norm / np.std(mat_norm)
-            print(f'var of normalized data: {np.var(np.abs(mat_norm))}')
+
+            print(f'mean of fully-normalized data: {np.mean(np.abs(mat_norm)):.2e}')
+            print(f'var of fully-normalized data: {np.var(np.abs(mat_norm)):.2e}')
     else:
         raise ValueError(f"Invalid normalization mode: {mode}")
     
