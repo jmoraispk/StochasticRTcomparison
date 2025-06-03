@@ -5,20 +5,21 @@ This project compares stochastic channel models with ray tracing models using UM
 ## Install Dependencies
 
 ```
-# sionna environment (for topology.py and data generation for thtt.py)
+### ENV1: sionna environment (for topology.py and data generation for thtt.py)
 mamba create -n env1_sionna python=3.11
 mamba activate env1_sionna
-pip install uv
-uv pip install -r env1_sionna env1_sionna_requirements.txt
+pip install -r env1_sionna env1_sionna_requirements.txt
 
-# For environment 21, check https://docs.rapids.ai/install/
-pip install \
-    --extra-index-url=https://pypi.nvidia.com \
-    "cuml-cu12==25.4.*"
+# Install cuml necessary for FAST Umap transforms (check `docs.rapids.ai/install`)
+pip install --extra-index-url=https://pypi.nvidia.com "cuml-cu12==25.4.*"
 
-# pytorch environment (for thtt.py)
+### ENV2: pytorch environment (for thtt.py)
 mamba create -n env2_pytorch python=3.11
 mamba activate env2_pytorch
+
+# Install PyTorch to run the models (check `pytorch.org/get-started/locally`)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+
 uv pip install -r env2_pytorch env2_pytorch_requirements.txt
 uv pip install -e .   ( in deepmimo env)
 uv pip install jupyter ipykernel
@@ -26,6 +27,8 @@ uv pip install jupyter ipykernel
 ############# Install DeepMIMO command (in both env requirements)
 # pip install deepmimo==4.0.0a3
 
+
+# TIP: install uv (with `pip install uv` and use `uv pip` instead of `pip` for speed)
 ```
 
 ## Project Structure
