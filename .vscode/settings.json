@@ -1,0 +1,20 @@
+{
+  "python.analysis.exclude": [
+    "**/channel_datasets_10k_complex/**",
+    "**/__pycache__/**",
+    "**/data/**",
+    "**/deepmimo_scenarios/**",
+    "**/results/**",
+    "**/DeepMIMO.egg-info/**",
+    "**/.github/**",
+    "**/.vscode/**",
+    "**/Interactive-1.interactive",
+    "**/Interactive-2.interactive",
+    "**/Interactive-3.interactive",
+    "**/Interactive-4.interactive",
+    "**/Interactive-5.interactive",
+    "**/Interactive-6.interactive",
+    "**/Interactive-7.interactive",
+
+  ]
+}
