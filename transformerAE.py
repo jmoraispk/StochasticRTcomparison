@@ -23,18 +23,11 @@ class Encoder(nn.Module):
         self.d_model = self.Nrt * self.n_out_channels
         dim_feedforward = 4 * self.d_model
         
-        self.transformer_layer1 = nn.TransformerEncoderLayer(d_model=self.d_model, 
-                                                            dim_feedforward=dim_feedforward, 
-                                                            nhead=n_heads, 
-                                                            batch_first=True)
-        self.transformer_layer2 = nn.TransformerEncoderLayer(d_model=self.d_model, 
-                                                            dim_feedforward=dim_feedforward, 
-                                                            nhead=n_heads, 
-                                                            batch_first=True)
-        self.transformer_layer3 = nn.TransformerEncoderLayer(d_model=self.d_model, 
-                                                            dim_feedforward=dim_feedforward, 
-                                                            nhead=n_heads, 
-                                                            batch_first=True)
+        encoder_layer = nn.TransformerEncoderLayer(d_model=self.d_model, 
+                                                  dim_feedforward=dim_feedforward, 
+                                                  nhead=n_heads, 
+                                                  batch_first=True)
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=3)
 
         # Update input features to account for all dimensions
         self.fc = nn.Linear(in_features=self.d_model * self.Nc, out_features=encoded_dim)
@@ -52,11 +45,7 @@ class Encoder(nn.Module):
         out = out.reshape(out.shape[0], self.Nc, self.d_model)
         # out.shape = (batch_size, Nc, d_model)
         
-        out = self.transformer_layer1(out)
-        # out.shape = (batch_size, Nc, d_model)
-        out = self.transformer_layer2(out)
-        # out.shape = (batch_size, Nc, d_model)
-        out = self.transformer_layer3(out)
+        out = self.transformer(out)
         # out.shape = (batch_size, Nc, d_model)
 
         # Flatten all dimensions except batch
@@ -81,18 +70,11 @@ class Decoder(nn.Module):
         
         dim_feedforward = 4 * self.d_model
         nhead = 8
-        self.transformer_layer1 = nn.TransformerEncoderLayer(d_model=self.d_model, 
-                                                            dim_feedforward=dim_feedforward, 
-                                                            nhead=nhead, 
-                                                            batch_first=True)
-        self.transformer_layer2 = nn.TransformerEncoderLayer(d_model=self.d_model, 
-                                                            dim_feedforward=dim_feedforward, 
-                                                            nhead=nhead, 
-                                                            batch_first=True)
-        self.transformer_layer3 = nn.TransformerEncoderLayer(d_model=self.d_model, 
-                                                            dim_feedforward=dim_feedforward, 
-                                                            nhead=nhead, 
-                                                            batch_first=True)
+        encoder_layer = nn.TransformerEncoderLayer(d_model=self.d_model, 
+                                                  dim_feedforward=dim_feedforward, 
+                                                  nhead=nhead, 
+                                                  batch_first=True)
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=3)
         
         self.conv_block1 = nn.Conv2d(in_channels=self.n_out_channels, 
                       out_channels=2, 
@@ -110,11 +92,7 @@ class Decoder(nn.Module):
         out = out.unsqueeze(1).expand(-1, self.Nc, -1)  # (batch_size, Nc, d_model)
         # out.shape = (batch_size, Nc, d_model)
         
-        out = self.transformer_layer1(out)
-        # out.shape = (batch_size, Nc, d_model)
-        out = self.transformer_layer2(out)
-        # out.shape = (batch_size, Nc, d_model)
-        out = self.transformer_layer3(out)
+        out = self.transformer(out)
         # out.shape = (batch_size, Nc, d_model)
 
         # Reshape for conv layer
@@ -172,7 +150,8 @@ class TransformerAE(nn.Module):
         self.encoder = Encoder(encoded_dim, Nc, Nt)
         self.quantize = bool(k_bits)
         self.k_bits = k_bits
-        # self.quantize_layer = QuantizeLayer(k_bits=encoded_dim*2)
+        if self.quantize:
+            self.quantize_layer = QuantizeLayer(k_bits=encoded_dim*2)
 
         self.decoder = Decoder(encoded_dim, Nc, Nt)
         self.name = self.encoder.name + '-' + self.decoder.name
@@ -182,7 +161,9 @@ class TransformerAE(nn.Module):
         # print(f'x.shape: {x.shape}')
         encoded_vector = self.encoder(x)
         if self.quantize:
-            encoded_vector = quantize(encoded_vector, self.k_bits)
+            encoded_vector = self.quantize_layer(encoded_vector)
+            # encoded_vector = quantize(encoded_vector, self.k_bits)
+            
         x_recovered = self.decoder(encoded_vector)
         # print(f'x_recovered.shape: {x_recovered.shape}')
         
