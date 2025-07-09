@@ -4,6 +4,11 @@ This module brings together a suite of functions designed for the training and
 evaluation of channel models. It includes capabilities for cross-testing among 
 various models and visualizing the outcomes. The module is compatible with both 
 stochastic and ray tracing channel models.
+
+Run instructions:
+1. Use the sionna enviornment to run the first 3 cells (3rd cell saved data)
+2. Use the pytorch environment to run the 1st cell (imports), the 4th cell (loads data),
+   and cells after that. (e.g. 5th cell trains models, 6th plots training results, etc.)
 """
 
 #%% Import Modules
@@ -73,14 +78,19 @@ from thtt_utils import (
 )
 # NC=16 * n_ant=32 * 2 -> 32 encoded dim(32x reduction)
 
+models_t = ['CDL-D']
+data_matrices_t = {'CDL-D': data_matrices['CDL-D']}
+
+# models_t, data_matrices_t = models, data_matrices
+
 # Train models
-all_res, model_paths = train_models(models, data_matrices, DATASET_MAIN_FOLDER, 
+all_res, model_paths = train_models(models_t, data_matrices_t, DATASET_MAIN_FOLDER, 
                                     encoded_dim=ENCODED_DIM, NC=N_TAPS,
                                     num_epochs=5, train_batch_size=16)
 
 #%% Plot Training Results
 
-plot_training_results(all_res, models)
+plot_training_results(all_res, models_t)
 
 #%% Cross-Test Models
 

@@ -93,8 +93,8 @@ def train_model(
     
     # instantiate the model and send to GPU
     print(f'Creating net with {n_refine_nets} refine nets at decoder side.')
-    net = CsinetPlus(encoded_dim, Nc, Nt, n_refine_nets=n_refine_nets)
-    # net = TransformerAE(encoded_dim, Nc, Nt)
+    # net = CsinetPlus(encoded_dim, Nc, Nt, n_refine_nets=n_refine_nets)
+    net = TransformerAE(encoded_dim, Nc, Nt) # kbits=None = no quantization
     net.to(device)
 
     # path to save the model
