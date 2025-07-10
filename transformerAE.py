@@ -38,13 +38,14 @@ class Encoder(nn.Module):
     def forward(self, x):
         # x.shape = (batch_size, 2, Nc, Nt)
         out = self.conv_block1(x)
-        # out.shape = (batch_size, n_out_channels, Nc, Nt)
-
-        # Reshape to (batch_size, Nc, d_model)
-        out = out.permute(0, 2, 1, 3)  # (batch_size, Nc, n_out_channels, Nt)
-        out = out.reshape(out.shape[0], self.Nc, self.d_model)
-        # out.shape = (batch_size, Nc, d_model)
         
+        # out.shape = (batch_size, n_out_channels, Nc, Nt)
+        out = out.permute(0, 2, 1, 3)  
+        
+        # out.shape = (batch_size, Nc, n_out_channels, Nt)
+        out = out.reshape(out.shape[0], self.Nc, self.d_model)
+
+        # out.shape = (batch_size, Nc, d_model)
         out = self.transformer(out)
         # out.shape = (batch_size, Nc, d_model)
 
@@ -66,7 +67,7 @@ class Decoder(nn.Module):
         self.n_out_channels = 8
         self.d_model = self.Nrt * self.n_out_channels
 
-        self.fc = nn.Linear(in_features=encoded_dim, out_features=self.d_model)
+        self.fc = nn.Linear(in_features=encoded_dim, out_features=self.Nc * self.d_model)
         
         dim_feedforward = 4 * self.d_model
         nhead = 8
@@ -85,13 +86,12 @@ class Decoder(nn.Module):
 
     def forward(self, x):
         # x.shape = (batch_size, encoded_dim)
-        out = self.fc(x)  # (batch_size, d_model)
-        # out.shape = (batch_size, d_model)
+        out = self.fc(x)
+        # out.shape = (batch_size, Nc * d_model)
 
-        # Expand to sequence length Nc
-        out = out.unsqueeze(1).expand(-1, self.Nc, -1)  # (batch_size, Nc, d_model)
-        # out.shape = (batch_size, Nc, d_model)
-        
+        out = out.reshape(out.shape[0], self.Nc, self.d_model)
+            
+        # out.shape = (batch_size=16, Nc=16, d_model=256)
         out = self.transformer(out)
         # out.shape = (batch_size, Nc, d_model)
 
