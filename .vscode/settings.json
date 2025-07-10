@@ -15,6 +15,7 @@
     "**/Interactive-5.interactive",
     "**/Interactive-6.interactive",
     "**/Interactive-7.interactive",
+    "**/slides/**",
 
   ]
 }
