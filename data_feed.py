@@ -1,89 +1,118 @@
 """
 Data Feed
 
-This module provides a DataFeed class for loading and processing channel data 
-from a specified root directory and CSV file. It includes functionality for 
-creating samples from the data and loading them into a PyTorch Dataset.
+This module provides a DataFeed class for loading and processing complex-valued 
+channel data into PyTorch tensors with separated real and imaginary parts.
 """
 
-import os
 import numpy as np
 import torch
-import sklearn
-from torch.utils.data import Dataset, DataLoader
-from scipy.io import loadmat
-from einops import rearrange
-
-def create_samples(data_root, csv_path, random_state, num_data_point, portion, select_data_idx):
-    # load channel data
-    channel_ad_clip = loadmat(data_root+'/channel_ad_clip.mat')['all_channel_ad_clip']
-    # print(f"Debug - channel_ad_clip shape: {channel_ad_clip.shape}")
-
-    # load data index
-    if select_data_idx is None:
-        # data_idx = pd.read_csv(os.path.join(data_root, csv_path))["data_idx"].to_numpy()
-        data_idx = np.loadtxt(os.path.join(data_root, csv_path), dtype=int)
-        # print(f"Debug - data_idx shape: {data_idx.shape}")
-        # print(f"Debug - data_idx max value: {np.max(data_idx)}")
-    else:
-        data_idx = select_data_idx
-        
-    # Remove the idxs where it's 0:
-    idxs_to_del = np.unique(np.where(np.abs(channel_ad_clip[:, 0, 0] == 0))[0])
-    if len(idxs_to_del) > 0:
-        print(f'Dropping 0-channel indices {idxs_to_del}')
-    data_idx_filtered = np.array([idx for idx in data_idx if idx not in idxs_to_del])
-    data_idx = data_idx_filtered.astype(int)
-    # print(f"Debug - After filtering, data_idx shape: {data_idx.shape}")
-    # print(f"Debug - After filtering, data_idx max value: {np.max(data_idx)}")
-    
-    channel_ad_clip = channel_ad_clip[data_idx, ...]
-
-    # shuffle
-    channel_ad_clip, data_idx = sklearn.utils.shuffle(channel_ad_clip, data_idx, random_state=random_state)
-    channel_ad_clip = np.squeeze(channel_ad_clip)
-
-    if select_data_idx is None: # if no particular data is selected
-        if num_data_point:
-            channel_ad_clip = channel_ad_clip[:num_data_point, ...]
-            data_idx = data_idx[:num_data_point, ...]
-        else:
-            num_data = data_idx.shape[0]
-            p = int(num_data*portion)
-
-            channel_ad_clip = channel_ad_clip[:p, ...]
-            data_idx = data_idx[:p, ...]
-
-    channel_ad_clip /= np.linalg.norm(channel_ad_clip, ord='fro', axis=(-1,-2), keepdims=True)
-    
-    channel_ad_clip = channel_ad_clip / np.expand_dims(channel_ad_clip[:, 0, 0] / 
-                                                        np.abs(channel_ad_clip[:, 0, 0]), (1,2))
-
-    return channel_ad_clip, data_idx
-
+from torch.utils.data import Dataset
 
 class DataFeed(Dataset):
-    def __init__(self, data_root, csv_path, random_state=0, num_data_point=None, 
-                 portion=1.0, select_data_idx=None):
-        self.data_root = data_root
-        self.channel_ad_clip, self.data_idx = create_samples(data_root, csv_path, 
-                                                             random_state, num_data_point, 
-                                                             portion, select_data_idx)
+    """Dataset class for loading complex channel data.
+    
+    Converts complex-valued channel matrices into PyTorch tensors with
+    separated real and imaginary components as channels.
+    
+    Note: Currently assumes input shape (n_samples, 1, Nt, Nc) but will be
+    generalized in the future to handle (n_samples, K, Nt, Nc) where K could
+    be number of paths, users, or other dimensions that should be stacked
+    with Nt or Nc for processing.
+    """
+    
+    @classmethod
+    def from_array(cls, channel_data: np.ndarray) -> 'DataFeed':
+        """Create a DataFeed from a complex channel array.
+        
+        Args:
+            channel_data: Complex channel data array of shape (n_samples, K, Nt, Nc)
+                Currently K must be 1, but this will be generalized in the future
+                to support multiple paths/users/etc.
+            
+        Returns:
+            DataFeed instance that will yield tensors of shape (1, 2, Nc, Nt)
+            where the first dimension is batch size 1, second dimension contains
+            real and imaginary parts, and Nc/Nt are preserved in their original order.
+        """
+        if not np.iscomplexobj(channel_data):
+            raise ValueError("Input data must be complex-valued")
+            
+        if len(channel_data.shape) != 4:
+            raise ValueError(f"Expected 4D input array (n_samples, K, Nt, Nc), got shape {channel_data.shape}")
+            
+        # TODO: Remove this constraint when implementing support for K > 1
+        # K dimension will need to be stacked with either Nt or Nc depending on use case
+        if channel_data.shape[1] != 1:
+            raise ValueError(f"Currently K must be 1, got shape {channel_data.shape}")
+            
+        # Print input stats
+        # print(f"\nDataFeed input stats:")
+        # print(f"Shape: {channel_data.shape}")
+        # print(f"Mean abs: {np.mean(np.abs(channel_data)):.3e}")
+        # print(f"Std abs: {np.std(np.abs(channel_data)):.3e}")
+        # print(f"Max abs: {np.max(np.abs(channel_data)):.3e}")
+        # print(f"Min abs: {np.min(np.abs(channel_data)):.3e}")
+        
+        # Remove zero channels
+        zero_mask = np.abs(channel_data[:, 0, 0, 0]) > 0
+        if not np.all(zero_mask):
+            print(f"Dropping {np.sum(~zero_mask)} zero channels")
+            channel_data = channel_data[zero_mask]
+            
+        # Normalize by Frobenius norm
+        frob_norms = np.sqrt(np.sum(np.abs(channel_data)**2, axis=(1,2,3), keepdims=True))
+        channel_data = channel_data / frob_norms
+        
+        # Normalize phase using first element
+        ref_phase = channel_data[:, 0, 0, 0] / np.abs(channel_data[:, 0, 0, 0])
+        channel_data = channel_data / ref_phase[:, np.newaxis, np.newaxis, np.newaxis]
+            
+        instance = cls.__new__(cls)
+        instance.channel_ad_clip = channel_data
+        instance.data_idx = np.arange(len(channel_data))
+        return instance
 
     def __len__(self):
         return len(self.data_idx)
 
     def __getitem__(self, idx):
-        data_idx = self.data_idx[idx, ...]
-        channel_ad_clip = self.channel_ad_clip[idx, ...]
-
-        data_idx = torch.tensor(data_idx, requires_grad=False)
-
-        channel_ad_clip = torch.tensor(channel_ad_clip, requires_grad=False)
-        channel_ad_clip = torch.view_as_real(channel_ad_clip)
-        channel_ad_clip = rearrange(channel_ad_clip, 'Nt Nc RealImag -> RealImag Nt Nc')
+        # Get complex channel data and remove K dimension (currently always 1)
+        # TODO: When K > 1 is supported, this squeeze will be replaced with
+        # appropriate reshaping to stack K with either Nt or Nc
+        channel_ad_clip = self.channel_ad_clip[self.data_idx[idx]].squeeze(0)
         
-        return channel_ad_clip.float(), data_idx.long()
+        # Print stats before processing
+        # print(f"\nProcessing sample {idx}:")
+        # print(f"Input shape: {channel_ad_clip.shape}")
+        # print(f"Input mean abs: {np.mean(np.abs(channel_ad_clip)):.3e}")
+        
+        # Split into real and imaginary parts
+        channel_real = np.real(channel_ad_clip)
+        channel_imag = np.imag(channel_ad_clip)
+        
+        # Stack as channels [2, Nt, Nc]
+        channel_ad_clip = np.stack([channel_real, channel_imag], axis=0)
+        
+        # Print stats after stacking
+        # print(f"After stacking shape: {channel_ad_clip.shape}")
+        # print(f"Real mean abs: {np.mean(np.abs(channel_real)):.3e}")
+        # print(f"Imag mean abs: {np.mean(np.abs(channel_imag)):.3e}")
+        
+        # Transpose to get [2, Nc, Nt] as expected by the model
+        channel_ad_clip = np.transpose(channel_ad_clip, (0, 2, 1))
+        
+        # Add batch dimension to make [1, 2, Nc, Nt]
+        channel_ad_clip = channel_ad_clip[np.newaxis, ...]
+        
+        # Convert to torch tensor
+        channel_ad_clip = torch.from_numpy(channel_ad_clip).float()
+        
+        # Print final stats
+        # print(f"Output shape: {channel_ad_clip.shape}")
+        # print(f"Output mean abs: {torch.mean(torch.abs(channel_ad_clip)):.3e}")
+        
+        return channel_ad_clip
 
 
 if __name__ == "__main__":

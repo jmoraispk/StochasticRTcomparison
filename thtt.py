@@ -12,97 +12,95 @@ Run instructions:
 """
 
 #%% Import Modules
-import sys
-# sys.path.insert(0, '/mnt/c/Users/jmora/Documents/GitHub/StochasticRTcomparison/')
-
 import os
 import pickle
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 
-DATA_FOLDER = 'data'
-N_TAPS = 16
-N_ANT = 32
-ENCODED_DIM = 64
-
-MATRIX_NAME = 'data_matrices_10k_complex.pkl'
+# Data paths
+DATA_FOLDER = 'data_new'
+MATRIX_NAME = 'data_matrices_10k_complex_new.pkl'
 MAT_PATH = os.path.join(DATA_FOLDER, MATRIX_NAME)
-DATASET_MAIN_FOLDER = 'channel_datasets_10k_complex'
 
-# Example usage
-ch_models = ['CDL-D', 'UMa']
+# Channel Models
+ch_models = ['CDL-D']#, 'UMa']
 rt_scens = ['asu_campus_3p5']
 models = rt_scens + ch_models
 
-#%% Load and Prepare Data
+#%% [SIONNA ENV] Load and Prepare Data
 
 from data_gen import DataConfig, load_data_matrices
+from model_config import ModelConfig
 
 # Configure data generation
-cfg = DataConfig(
-    n_samples = 50_000,
+data_cfg = DataConfig(
+    n_samples = 10_000,
     n_prbs = 20,
     n_rx = 1,
-    n_tx = N_ANT,
+    n_tx = 32,
     snr = 50,
     normalize = 'dataset-mean-var-complex',
 )
 
 # UMAP parameters
-cfg.x_points = cfg.n_samples #int(2e5)  # Number of points to sample from each dataset (randomly)
-cfg.seed = 42  # Set to None to keep random
-cfg.rt_uniform_steps = [1, 1]
+data_cfg.x_points = data_cfg.n_samples #int(2e5)  # Number of points to sample from each dataset (randomly)
+data_cfg.seed = 42  # Set to None to keep random
+data_cfg.rt_uniform_steps = [3, 3]
 
 # Load data
-data_matrices = load_data_matrices(models, cfg)
+data_matrices = load_data_matrices(models, data_cfg)
 
-#%% Save matrices
+#%% [SIONNA ENV] Save matrices
 os.makedirs(DATA_FOLDER, exist_ok=True)
 with open(MAT_PATH, 'wb') as f:
     pickle.dump(data_matrices, f)
 
-#%% Load matrices (in environment with PyTorch)
+#%% [PYTORCH ENV] Load matrices
 
 with open(MAT_PATH, 'rb') as f:
     data_matrices = pickle.load(f)
 
+models = list(data_matrices.keys())
+
+#%% [PYTORCH ENV] Create Base Configuration
+
+from model_config import ModelConfig
+from thtt_utils import train_models, cross_test_models
+from thtt_plot import plot_training_results, plot_test_matrix
+
+# Create base model configuration
+base_config = ModelConfig(
+    # Model architecture
+    encoded_dim=64,   # 32x reduction (NC=16 * n_ant=64 * 2 IQ / 64 = 32x)
+    n_refine_nets=6,  # != 1 for CSInetPlus | -1 for TransformerAE
+    n_taps=16,
+    n_antennas=32,  # TODO: change to 64
+    
+    # Training parameters
+    train_batch_size=16,
+    num_epochs=2,
+    learning_rate=1e-2,
+    
+    # Directory structure
+    dataset_main_folder='channel_experiment'
+)
+
 #%% Train Models
 
-from thtt_utils import (
-    train_models,
-    cross_test_models,
-    plot_training_results,
-    plot_test_matrix,
-    train_with_percentages
-)
-# NC=16 * n_ant=32 * 2 -> 32 encoded dim(32x reduction)
+# Train models using base config
+all_res = train_models(data_matrices, base_config)
 
-# models_t = ['CDL-D']
-# data_matrices_t = {'CDL-D': data_matrices['CDL-D']}
-
-models_t, data_matrices_t = models, data_matrices
-
-# Train models
-all_res, model_paths = train_models(models_t, data_matrices_t, DATASET_MAIN_FOLDER, 
-    encoded_dim=ENCODED_DIM, NC=N_TAPS,num_epochs=15, train_batch_size=16, 
-    learning_rate=1e-2, n_refine_nets=6)   # CSInetPlus
-    # learning_rate=1e-4, n_refine_nets=-1)  # TransformerAE
-
-#%% Plot Training Results
-
-plot_training_results(all_res, models_t)  # add option to plot test results
+# Plot training results
+plot_training_results(all_res, models)
 
 #%% Cross-Test Models
 
-all_test_results, results_matrix = \
-    cross_test_models(models, data_matrices, DATASET_MAIN_FOLDER, 
-                      encoded_dim=ENCODED_DIM, NC=N_TAPS, Nt=N_ANT, n_refine_nets=6)
+all_test_results, results_matrix = cross_test_models(data_matrices, base_config)
 
-#%% Plot Test Results
-
+# Plot test matrix
 plot_test_matrix(results_matrix, models)
 
+# Print detailed results
 results_matrix_db = 10 * np.log10(results_matrix)
 df = pd.DataFrame(results_matrix_db, index=models, columns=models)
 df = df.round(1)
@@ -113,57 +111,59 @@ print(df.to_string())
 
 #%% Cross-fine-tune
 
-data_percentage = 0.1
-fine_tuned_models_folder = DATASET_MAIN_FOLDER + '_finetuned'
-for src_idx, source_model in enumerate(models):
-    for target_model in models:
+# Calculate sizes for train/test split
+percent = 0.1  # Use 10% for fine-tuning
+n_samples = next(iter(data_matrices.values())).shape[0] # get first dataset size
+n_train = int(n_samples * percent)  
+n_test = n_samples - n_train
+
+# Create train/test splits for each model
+train_data = {}
+test_data = {}
+np.random.seed(42)  # Use fixed seed for reproducibility
+
+for model in data_matrices.keys():
+    # Randomly shuffle indices
+    indices = np.random.permutation(n_samples)
+    train_indices = indices[:n_train]
+    test_indices = indices[n_train:]
+    
+    # Split data
+    train_data[model] = data_matrices[model][train_indices]
+    test_data[model] = data_matrices[model][test_indices]
+
+# Fine-tune each source->target pair
+for source_idx, source_model in enumerate(models):
+    for target_idx, target_model in enumerate(models):
         if target_model == source_model:
             continue
-
-        # Train UMa model with pre-trained weights
-        model_test_nmse, model_name = train_with_percentages(
-            target_model, data_matrices, DATASET_MAIN_FOLDER,
-            models_folder=fine_tuned_models_folder,
-            percentages=[data_percentage], load_model=True,
-            model_path=model_paths[src_idx], epochs=2,
+            
+        print(f"\nFine-tuning {source_model} -> {target_model}")
+        
+        # Create config for this specific fine-tuning pair
+        pair_config = base_config.for_finetuning(
+            source_model=source_model,
+            num_epochs=5,
+            n_train_samples=n_train
         )
+        
+        # Fine-tune model using training subset
+        target_train_data = {target_model: train_data[target_model]}
+        results = train_models(target_train_data, pair_config)
 
-# This should TEST the fine-tuned models!!!!
-all_test_results, results_matrix = \
-    cross_test_models(models, data_matrices, DATASET_MAIN_FOLDER, 
-                      models_folder=fine_tuned_models_folder,
-                      encoded_dim=ENCODED_DIM, NC=N_TAPS, Nt=N_ANT, skip_same=True)
+#%%
+# Test all fine-tuned models on held-out test data
+print("\nCross-testing all fine-tuned models...")
+all_test_results, results_matrix = cross_test_models(test_data, base_config)
 
+# Plot fine-tuning test results
+plot_test_matrix(results_matrix, models)
 
-#%% Train with Different Percentages of Data
+# Print detailed results
+results_matrix_db = 10 * np.log10(results_matrix)
+df = pd.DataFrame(results_matrix_db, index=models, columns=models)
+df = df.round(1)
 
-# Train models with different percentages
-os.makedirs(DATASET_MAIN_FOLDER, exist_ok=True)
-
-# Define percentages to use for training
-percentages = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-
-# Path to pre-trained UMa model
-uma_model_path = 'channel_datasets_uma_asu3/model_UMa/model_encoded-dim=128_model=UMa.path'
-
-# Train UMa model with pre-trained weights
-uma_test_nmse, uma_name = train_with_percentages(
-    'UMa', data_matrices, DATASET_MAIN_FOLDER,
-    percentages=percentages, load_model=True, model_path=uma_model_path)
-
-# Train UMa model from scratch
-rand_test_nmse, rand_name = train_with_percentages(
-    'UMa', data_matrices, DATASET_MAIN_FOLDER,
-    percentages=percentages, load_model=False)
-
-# Plot results
-plt.figure(figsize=(10, 6))
-plt.plot(percentages, uma_test_nmse, '-o', label='UMA (Pre-trained)')
-plt.plot(percentages, rand_test_nmse, '-o', label='Random (From scratch)')
-plt.legend()
-plt.xlabel('Percentage of Data Used')
-plt.ylabel('NMSE (dB)')
-plt.title('NMSE of UMA and Random Models')
-plt.grid(True)
-plt.savefig('percentage_training_results.png')
-plt.show() 
+print("\nFine-tuning Test Results (NMSE in dB):")
+print("=====================================")
+print(df.to_string())

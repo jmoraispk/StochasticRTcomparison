@@ -3,6 +3,11 @@
 This module provides functions for training and testing channel models,
 including cross-testing between different models and visualization of results.
 It supports both stochastic and ray tracing channel models.
+
+This module handles all PyTorch-specific functionality, including:
+- Data loading and batching
+- Model training and evaluation
+- Loss computation and optimization
 """
 
 import os
@@ -18,34 +23,91 @@ from CsinetPlus import CsinetPlus
 from data_feed import DataFeed
 from einops import rearrange
 from transformerAE import TransformerAE
+from typing import Tuple, Optional, Dict
 
-def cal_nmse(A, B):
+def create_dataloaders(
+    data: np.ndarray,
+    train_batch_size: int = 32,
+    test_batch_size: int = 1024,
+    n_train_samples: Optional[int] = None,
+    n_val_samples: Optional[int] = None,
+    n_test_samples: Optional[int] = None,
+    random_state: int = 42,
+) -> Tuple[DataLoader, DataLoader, DataLoader]:
+    """Create PyTorch DataLoaders for training, validation and testing.
+    
+    Creates train/val/test splits from provided data array and returns
+    corresponding DataLoaders.
+    
+    Args:
+        data: Numpy array containing channel data
+        train_batch_size: Batch size for training
+        test_batch_size: Batch size for validation and testing
+        n_train_samples: Number of training samples to use (None = use all)
+        n_val_samples: Number of validation samples to use (None = use all)
+        n_test_samples: Number of test samples to use (None = use all)
+        random_state: Random seed for reproducibility
+        
+    Returns:
+        Tuple of (train_loader, val_loader, test_loader)
     """
-    Compute the Normalized Mean Squared Error (NMSE) between matrices A and B using PyTorch.
+    # Calculate split sizes
+    n_samples = len(data)
+    train_size = int(0.8 * n_samples)
+    val_size = int(0.1 * n_samples)
+    
+    # Create random indices
+    np.random.seed(random_state)
+    indices = np.random.permutation(n_samples)
+    
+    # Split indices
+    train_indices = indices[:train_size]
+    val_indices = indices[train_size:train_size + val_size]
+    test_indices = indices[train_size + val_size:]
+    
+    # Create DataLoaders using array slices
+    train_loader = DataLoader(
+        DataFeed.from_array(data[train_indices][:n_train_samples] if n_train_samples else data[train_indices]),
+        batch_size=train_batch_size,
+        shuffle=True,
+    )
+    
+    val_loader = DataLoader(
+        DataFeed.from_array(data[val_indices][:n_val_samples] if n_val_samples else data[val_indices]),
+        batch_size=test_batch_size,
+    )
+    
+    test_loader = DataLoader(
+        DataFeed.from_array(data[test_indices][:n_test_samples] if n_test_samples else data[test_indices]),
+        batch_size=test_batch_size,
+    )
+    
+    return train_loader, val_loader, test_loader
+
+def cal_nmse(A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
+    """Compute the Normalized Mean Squared Error (NMSE) between complex-valued tensors.
+
+    This function computes NMSE between two complex-valued tensors by:
+    1. Rearranging the tensors to proper complex format
+    2. Converting to complex tensors
+    3. Computing the Frobenius norm-based NMSE
 
     Args:
-    - A (torch.Tensor): The original matrix.
-    - B (torch.Tensor): The approximated matrix.
+        A: Original tensor of shape (batch, RealImag, Nt, Nc)
+        B: Approximated tensor of shape (batch, RealImag, Nt, Nc)
 
     Returns:
-    - float: The NMSE value between matrices A and B.
+        NMSE values for each sample in the batch
     """
     # Calculate the Frobenius norm difference between A and B
-
     A = rearrange(A, 'b RealImag Nt Nc -> b Nt Nc RealImag').contiguous()
     B = rearrange(B, 'b RealImag Nt Nc -> b Nt Nc RealImag').contiguous()
     A = torch.view_as_complex(A)
     B = torch.view_as_complex(B)
     
-    # A = torch.view_as_complex(torch.permute(A, (0,2,3,1)).contiguous())
-    # B = torch.view_as_complex(torch.permute(B, (0,2,3,1)).contiguous())
-
     error_norm = torch.norm(A - B, p='fro', dim=(-1, -2))
-    
-    # Calculate the Frobenius norm of A
     A_norm = torch.norm(A, p='fro', dim=(-1, -2))
     
-    # Return NMSE
     return (error_norm**2) / (A_norm**2)
 
 def train_model(
@@ -89,7 +151,6 @@ def train_model(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # Assuming that we are on a CUDA machine, this should print a CUDA device:
     print(device)
-    
     
     # instantiate the model and send to GPU
     print(f'Creating net with {n_refine_nets} refine nets at decoder side.')
@@ -231,9 +292,20 @@ def train_model(
         }
 
 
-def test_model(test_loader, net=None, model_path=None, encoded_dim=32, 
-               Nc=100, Nt=64, n_refine_nets=5):
+def test_model(test_loader: DataLoader, 
+               net: Optional[nn.Module] = None, 
+               model_path: Optional[str] = None, 
+               encoded_dim: int = 32, 
+               Nc: int = 100, 
+               Nt: int = 64, 
+               n_refine_nets: int = 5) -> Dict:
     """Test a trained CSI-Net model on a test dataset.
+    
+    This function either:
+    1. Uses a provided model directly, or
+    2. Loads a model from a checkpoint file
+    
+    It then evaluates the model on the test dataset and returns detailed metrics.
     
     Args:
         test_loader: DataLoader containing test data
@@ -245,11 +317,16 @@ def test_model(test_loader, net=None, model_path=None, encoded_dim=32,
         n_refine_nets: Number of refinement networks
         
     Returns:
-        Dictionary containing test metrics and model outputs
+        Dictionary containing:
+        - test_loss_all: Loss values for each test sample
+        - test_nmse_all: NMSE values for each test sample
+        - test_data_idx: Indices of test samples
+        - inputs: Original input channels
+        - encoded: Encoded representations
+        - outputs: Reconstructed channels
     """
     # check gpu acceleration availability
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # Assuming that we are on a CUDA machine, this should print a CUDA device:
     if device.type != 'cuda':
         print('not running on gpu!')
 
@@ -294,152 +371,11 @@ def test_model(test_loader, net=None, model_path=None, encoded_dim=32,
         encoded_vects = np.concatenate(encoded_vects)
         outputs = np.concatenate(outputs)
         
-        return {
-            "test_loss_all": test_loss,
-            "test_nmse_all": test_nmse,
-            "test_data_idx": test_data_idx,
-            "inputs": inputs,
-            "encoded": encoded_vects,
-            "outputs": outputs,
-        }
-    
-
-def test_from_csv(csv_folder, csv_name, model_path=None, encoded_dim=32, Nc=100, Nt=64, n_refine_nets=5):
-    """Test a CSI-Net model using data from CSV files.
-    
-    Args:
-        csv_folder: Folder containing CSV data files
-        csv_name: Name of CSV file to test on
-        model_path: Path to saved model weights
-        encoded_dim: Dimension of encoded representation
-        Nc: Number of subcarriers
-        Nt: Number of antennas
-        
-    Returns:
-        Dictionary containing test results
-    """
-    test_loader = DataLoader(DataFeed(csv_folder, csv_name, num_data_point=100000), 
-                             batch_size=1024)
-    
-    test_results = test_model(test_loader=test_loader,
-                              model_path=model_path,
-                              encoded_dim=encoded_dim,
-                              Nc=Nc,
-                              Nt=Nt,
-                              n_refine_nets=n_refine_nets)
-    return test_results
-
-
-def train_model_loop(
-    training_data_folder = "channel_datasets/1/",
-    testing_data_folder = "channel_datasets/1/",
-    train_csv = "/train_data_idx.csv",
-    val_csv = "/test_data_idx.csv",
-    test_csv = "/test_data_idx.csv",
-    train_batch_size = 32,
-    test_batch_size = 1024,
-    n_runs = 1,
-    list_number_training_datapoints = [5120],  # [10, 20, 40, 80, 160, 320, 640, 1280, 2560, 5120]
-    
-    # validation and testing parameters
-    n_val_samples=10000,
-    n_test_samples=10000,
-    
-    # train_model_params
-    Nc=100,
-    Nt=64,
-    encoded_dim=32,
-    num_epoch=110,
-    model_path_save=None,
-    model_path_load=None,
-    save_model=True,
-    load_model=False,
-    lr=1e-2,
-    n_refine_nets=5, # number of refine layers at the decoder
-    ):
-    """Run multiple training iterations with different dataset sizes.
-    
-    Args:
-        training_data_folder: Path to training data
-        testing_data_folder: Path to testing data
-        train_csv: Training data CSV filename
-        val_csv: Validation data CSV filename
-        test_csv: Test data CSV filename
-        train_batch_size: Batch size for training
-        test_batch_size: Batch size for testing
-        n_runs: Number of training runs
-        list_number_training_datapoints: List of dataset sizes to train on
-        n_val_samples: Number of validation samples
-        n_test_samples: Number of test samples
-        Nc: Number of subcarriers
-        Nt: Number of antennas
-        encoded_dim: Dimension of encoded representation
-        num_epoch: Number of training epochs
-        model_path_save: Path to save model
-        model_path_load: Path to load model
-        save_model: Whether to save model
-        load_model: Whether to load model
-        lr: Learning rate
-        n_refine_nets: Number of refinement networks
-        
-    Returns:
-        Dictionary containing training results
-    """
-    np.random.seed(10)
-    seeds = np.random.randint(0, 10000, size=(1000,))
-
-    all_avg_nmse = []
-    for i in range(n_runs):
-        all_nmse = []
-        for num_train_data in list_number_training_datapoints:
-            torch.manual_seed(seeds[i])
-            train_loader = DataLoader(
-                DataFeed(training_data_folder, train_csv, num_data_point=num_train_data, random_state=seeds[i]),
-                batch_size=train_batch_size,
-                shuffle=True,
-            )
-            val_loader = DataLoader(
-                DataFeed(training_data_folder, val_csv, num_data_point=n_val_samples, random_state=seeds[i]),
-                batch_size=test_batch_size,
-            )
-            test_loader = DataLoader(
-                DataFeed(testing_data_folder, test_csv, num_data_point=n_test_samples, random_state=seeds[i]),
-                batch_size=test_batch_size,
-            )
-
-            now = datetime.datetime.now().strftime("%H_%M_%S")
-            date = datetime.date.today().strftime("%y_%m_%d")
-            comment = "_".join([now, date])
-
-            print(f"Number of trainig    data points : {len(train_loader.dataset)}")
-            print(f"Number of validation data points : {len(val_loader.dataset)}")
-            print(f"Number of testing    data points : {len(test_loader.dataset)}")
-            ret = train_model(
-                train_loader,
-                val_loader,
-                test_loader,
-                comment=comment,
-                Nc=Nc,
-                Nt=Nt,
-                encoded_dim=encoded_dim,
-                num_epoch=num_epoch,
-                model_path_save=model_path_save,
-                model_path_load=model_path_load,
-                save_model=save_model,
-                load_model=load_model,
-                lr=lr,
-                n_refine_nets=n_refine_nets
-            )
-            print(f'Returned results: {ret}')
-            all_nmse.append(ret["all_val_nmse"])
-        avg_nmse = np.asarray([np.asarray(nmse).mean() for nmse in all_nmse])
-        all_avg_nmse.append(avg_nmse)
-    all_avg_nmse = np.stack(all_avg_nmse, 0)
-
-    print(all_avg_nmse)
-    results_folder = 'results'
-    os.makedirs(results_folder, exist_ok=True)
-    savemat(results_folder + "/all_avg_nmse_train_on_synth.mat",
-            {"all_avg_nmse_train_on_synth": all_avg_nmse})
-    print("done")
-    return ret # last ret
+    return {
+        "test_loss_all": test_loss,
+        "test_nmse_all": test_nmse,
+        "test_data_idx": test_data_idx,
+        "inputs": inputs,
+        "encoded": encoded_vects,
+        "outputs": outputs,
+    }
