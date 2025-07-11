@@ -1,4 +1,10 @@
 {
+  "python.languageServer": "None",
+  "python.analysis.typeCheckingMode": "off",
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportArgumentType": "none"
+  },
+  "python.analysis.diagnosticMode": "workspace",
   "python.analysis.exclude": [
     "**/channel_datasets_10k_complex/**",
     "**/__pycache__/**",
@@ -16,6 +22,25 @@
     "**/Interactive-6.interactive",
     "**/Interactive-7.interactive",
     "**/slides/**",
+    
 
+  ],
+  "cursorpyright.analysis.exclude": [
+    "**/channel_datasets_10k_complex/**",
+    "**/__pycache__/**",
+    "**/data/**",
+    "**/deepmimo_scenarios/**",
+    "**/results/**",
+    "**/DeepMIMO.egg-info/**",
+    "**/.github/**",
+    "**/.vscode/**",
+    "**/Interactive-1.interactive",
+    "**/Interactive-2.interactive",
+    "**/Interactive-3.interactive",
+    "**/Interactive-4.interactive",
+    "**/Interactive-5.interactive",
+    "**/Interactive-6.interactive",
+    "**/Interactive-7.interactive",
+    "**/slides/**"
   ]
 }
