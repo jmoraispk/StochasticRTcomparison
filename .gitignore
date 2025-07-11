@@ -11,3 +11,4 @@ logs/*
 *.csv
 *.path
 *.png
+channel_experiment*
