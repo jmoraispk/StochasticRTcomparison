@@ -405,3 +405,28 @@ data_matrices[rt_model] = normalize_data(mat_rt, mode=cfg.normalize)
 data_matrices[stochastic_model] = normalize_data(mat_stochastic, mode=cfg.normalize)
 
 data_real, labels = prepare_umap_data(data_matrices, models, cfg.x_points, cfg.seed)
+
+
+#%% Load data matrices with different path trims
+
+import deepmimo as dm
+
+dataset = dm.load('asu_campus_3p5')
+
+print('trimming by path type')
+dataset_t_los = dataset.subset(dataset.trim_by_path_type(['LoS']))
+dataset_t_los_r = dataset.subset(dataset.trim_by_path_type(['LoS', 'R']))
+dataset_t_los_r_d = dataset.subset(dataset.trim_by_path_type(['LoS', 'R', 'D']))
+dataset_t_los_r_s = dataset.subset(dataset.trim_by_path_type(['LoS', 'R', 'S']))
+
+print('plotting power')
+dataset_t_los.power.plot(title='LoS')
+dataset_t_los_r.power.plot(title='LoS + R')
+dataset_t_los_r_d.power.plot(title='LoS + R + D')
+dataset_t_los_r_s.power.plot(title='LoS + R + S')
+
+
+
+
+
+#%%
