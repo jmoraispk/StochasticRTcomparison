@@ -26,7 +26,7 @@ from transformerAE import TransformerAE
 from typing import Tuple, Optional, Dict
 
 def create_dataloaders(
-    dataset_folder: str,
+    dataset_folder: str = None,
     train_csv: str = "train_data_idx.csv",
     val_csv: str = "val_data_idx.csv",
     test_csv: str = "test_data_idx.csv",
@@ -36,11 +36,15 @@ def create_dataloaders(
     n_val_samples: Optional[int] = None,
     n_test_samples: Optional[int] = None,
     random_state: int = 42,
+    direct_data: Optional[np.ndarray] = None,
+    train_indices: Optional[np.ndarray] = None,
+    val_indices: Optional[np.ndarray] = None,
+    test_indices: Optional[np.ndarray] = None,
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """Create PyTorch DataLoaders for training, validation and testing.
     
     Args:
-        dataset_folder: Base folder containing the dataset
+        dataset_folder: Base folder containing the dataset (for file-based approach)
         train_csv: Name of training data CSV file
         val_csv: Name of validation data CSV file
         test_csv: Name of testing data CSV file
@@ -50,25 +54,63 @@ def create_dataloaders(
         n_val_samples: Number of validation samples to use (None = use all)
         n_test_samples: Number of test samples to use (None = use all)
         random_state: Random seed for reproducibility
+        direct_data: Optional direct data array (for direct data approach)
+        train_indices: Optional training indices for direct data
+        val_indices: Optional validation indices for direct data
+        test_indices: Optional test indices for direct data
         
     Returns:
         Tuple of (train_loader, val_loader, test_loader)
     """
-    train_loader = DataLoader(
-        DataFeed(dataset_folder, train_csv, num_data_point=n_train_samples, random_state=random_state),
-        batch_size=train_batch_size,
-        shuffle=True,
-    )
-    
-    val_loader = DataLoader(
-        DataFeed(dataset_folder, val_csv, num_data_point=n_val_samples, random_state=random_state),
-        batch_size=test_batch_size,
-    )
-    
-    test_loader = DataLoader(
-        DataFeed(dataset_folder, test_csv, num_data_point=n_test_samples, random_state=random_state),
-        batch_size=test_batch_size,
-    )
+    if direct_data is not None:
+        # Direct data approach
+        train_loader = DataLoader(
+            DataFeed(direct_data=direct_data[train_indices], 
+                    direct_indices=train_indices,
+                    num_data_point=n_train_samples,
+                    random_state=random_state),
+            batch_size=train_batch_size,
+            shuffle=True,
+        )
+        
+        val_loader = DataLoader(
+            DataFeed(direct_data=direct_data[val_indices],
+                    direct_indices=val_indices,
+                    num_data_point=n_val_samples,
+                    random_state=random_state),
+            batch_size=test_batch_size,
+        )
+        
+        test_loader = DataLoader(
+            DataFeed(direct_data=direct_data[test_indices],
+                    direct_indices=test_indices,
+                    num_data_point=n_test_samples,
+                    random_state=random_state),
+            batch_size=test_batch_size,
+        )
+    else:
+        # File-based approach
+        train_loader = DataLoader(
+            DataFeed(dataset_folder, train_csv, 
+                    num_data_point=n_train_samples, 
+                    random_state=random_state),
+            batch_size=train_batch_size,
+            shuffle=True,
+        )
+        
+        val_loader = DataLoader(
+            DataFeed(dataset_folder, val_csv, 
+                    num_data_point=n_val_samples, 
+                    random_state=random_state),
+            batch_size=test_batch_size,
+        )
+        
+        test_loader = DataLoader(
+            DataFeed(dataset_folder, test_csv, 
+                    num_data_point=n_test_samples, 
+                    random_state=random_state),
+            batch_size=test_batch_size,
+        )
     
     return train_loader, val_loader, test_loader
 

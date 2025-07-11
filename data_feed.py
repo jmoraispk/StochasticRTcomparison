@@ -17,14 +17,10 @@ from einops import rearrange
 def create_samples(data_root, csv_path, random_state, num_data_point, portion, select_data_idx):
     # load channel data
     channel_ad_clip = loadmat(data_root+'/channel_ad_clip.mat')['all_channel_ad_clip']
-    # print(f"Debug - channel_ad_clip shape: {channel_ad_clip.shape}")
 
     # load data index
     if select_data_idx is None:
-        # data_idx = pd.read_csv(os.path.join(data_root, csv_path))["data_idx"].to_numpy()
         data_idx = np.loadtxt(os.path.join(data_root, csv_path), dtype=int)
-        # print(f"Debug - data_idx shape: {data_idx.shape}")
-        # print(f"Debug - data_idx max value: {np.max(data_idx)}")
     else:
         data_idx = select_data_idx
         
@@ -34,8 +30,6 @@ def create_samples(data_root, csv_path, random_state, num_data_point, portion, s
         print(f'Dropping 0-channel indices {idxs_to_del}')
     data_idx_filtered = np.array([idx for idx in data_idx if idx not in idxs_to_del])
     data_idx = data_idx_filtered.astype(int)
-    # print(f"Debug - After filtering, data_idx shape: {data_idx.shape}")
-    # print(f"Debug - After filtering, data_idx max value: {np.max(data_idx)}")
     
     channel_ad_clip = channel_ad_clip[data_idx, ...]
 
@@ -63,10 +57,47 @@ def create_samples(data_root, csv_path, random_state, num_data_point, portion, s
 
 
 class DataFeed(Dataset):
-    def __init__(self, data_root, csv_path, random_state=0, num_data_point=None, 
-                 portion=1.0, select_data_idx=None):
-        self.data_root = data_root
-        self.channel_ad_clip, self.data_idx = create_samples(data_root, csv_path, 
+    def __init__(self, data_root=None, csv_path=None, random_state=0, num_data_point=None, 
+                 portion=1.0, select_data_idx=None, direct_data=None, direct_indices=None):
+        """Initialize DataFeed either with file paths or direct data.
+        
+        Args:
+            data_root: Base directory containing data files
+            csv_path: Path to CSV file with indices
+            random_state: Random seed for shuffling
+            num_data_point: Number of data points to use
+            portion: Portion of data to use
+            select_data_idx: Specific indices to select
+            direct_data: Direct channel data array (if not using files)
+            direct_indices: Direct indices array (if not using files)
+        """
+        if direct_data is not None:
+            self.channel_ad_clip = direct_data  # Already in correct format from train_models
+            self.data_idx = direct_indices if direct_indices is not None else np.arange(len(direct_data))
+            
+            # Handle num_data_point and portion
+            if num_data_point:
+                self.channel_ad_clip = self.channel_ad_clip[:num_data_point, ...]
+                self.data_idx = self.data_idx[:num_data_point, ...]
+            elif portion < 1.0:
+                num_data = len(self.data_idx)
+                p = int(num_data * portion)
+                self.channel_ad_clip = self.channel_ad_clip[:p, ...]
+                self.data_idx = self.data_idx[:p, ...]
+                
+            # Shuffle if requested
+            if random_state is not None:
+                self.channel_ad_clip, self.data_idx = sklearn.utils.shuffle(
+                    self.channel_ad_clip, self.data_idx, random_state=random_state
+                )
+                
+            # Apply same normalization as file-based approach
+            self.channel_ad_clip /= np.linalg.norm(self.channel_ad_clip, ord='fro', axis=(-1,-2), keepdims=True)
+            self.channel_ad_clip = self.channel_ad_clip / np.expand_dims(self.channel_ad_clip[:, 0, 0] / 
+                                                            np.abs(self.channel_ad_clip[:, 0, 0]), (1,2))
+        else:
+            self.data_root = data_root
+            self.channel_ad_clip, self.data_idx = create_samples(data_root, csv_path, 
                                                              random_state, num_data_point, 
                                                              portion, select_data_idx)
 
@@ -75,13 +106,23 @@ class DataFeed(Dataset):
 
     def __getitem__(self, idx):
         data_idx = self.data_idx[idx, ...]
-        channel_ad_clip = self.channel_ad_clip[idx, ...]
+        channel_ad_clip = self.channel_ad_clip[idx, ...]  # Shape: (1, Nc, Nt)
 
         data_idx = torch.tensor(data_idx, requires_grad=False)
-
         channel_ad_clip = torch.tensor(channel_ad_clip, requires_grad=False)
-        channel_ad_clip = torch.view_as_real(channel_ad_clip)
-        channel_ad_clip = rearrange(channel_ad_clip, 'Nt Nc RealImag -> RealImag Nt Nc')
+        
+        # Convert to real/imag format expected by CsinetPlus
+        channel_ad_clip = torch.view_as_real(channel_ad_clip)  # Shape: (1, Nc, Nt, 2)
+        
+        # Print shape for debugging
+        # print(f"Shape after view_as_real: {channel_ad_clip.shape}")
+        
+        # Move real/imag dimension to front and remove singleton dimension
+        # From (1, Nc, Nt, 2) to (2, Nc, Nt)
+        channel_ad_clip = channel_ad_clip.squeeze(0).permute(2, 0, 1)  # Shape: (2, Nc, Nt)
+        
+        # Print final shape for debugging
+        # print(f"Final shape: {channel_ad_clip.shape}")
         
         return channel_ad_clip.float(), data_idx.long()
 

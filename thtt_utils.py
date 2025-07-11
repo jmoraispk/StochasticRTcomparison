@@ -15,6 +15,9 @@ import scipy.io
 from csinet_train_test import test_from_csv, train_model, create_dataloaders
 from model_config import ModelConfig
 
+# If True, data will be passed directly to data loaders without saving to files
+USE_DIRECT_DATA = True
+
 def convert_channel_angle_delay(channel: np.ndarray) -> np.ndarray:
     """
     Convert channel to angle-delay domain.
@@ -33,17 +36,20 @@ def train_val_test_split(n_samples: int,
                         seed: int = 2,
                         train_csv: Optional[str] = None,
                         val_csv: Optional[str] = None,
-                        test_csv: Optional[str] = None) -> None:
+                        test_csv: Optional[str] = None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Split data into train/val/test sets and save indices to CSV files.
+    Split data into train/val/test sets and optionally save indices to CSV files.
     
     Args:
         n_samples: Total number of samples
         train_val_test_split: List of proportions for train/val/test split
         seed: Random seed for reproducibility
-        train_csv: Path to save training indices
-        val_csv: Path to save validation indices
-        test_csv: Path to save test indices
+        train_csv: Optional path to save training indices
+        val_csv: Optional path to save validation indices
+        test_csv: Optional path to save test indices
+        
+    Returns:
+        Tuple of (train_indices, val_indices, test_indices)
     """
     np.random.seed(seed)
     indices = np.random.permutation(n_samples)
@@ -55,12 +61,15 @@ def train_val_test_split(n_samples: int,
     val_indices = indices[train_size:train_size + val_size]
     test_indices = indices[train_size + val_size:]
     
+    # Save to CSV files if paths are provided
     if train_csv:
         np.savetxt(train_csv, train_indices, fmt='%d', delimiter=',')
     if val_csv:
         np.savetxt(val_csv, val_indices, fmt='%d', delimiter=',')
     if test_csv:
         np.savetxt(test_csv, test_indices, fmt='%d', delimiter=',')
+        
+    return train_indices, val_indices, test_indices
 
 def train_models(data_matrices: Dict[str, np.ndarray], config: ModelConfig) -> List[Dict]:
     """Train models for each area.
@@ -84,30 +93,53 @@ def train_models(data_matrices: Dict[str, np.ndarray], config: ModelConfig) -> L
         os.makedirs(dataset_folder, exist_ok=True)
         
         # Convert channel to angle-delay domain
+        print(f"Initial data shape: {data_matrices[model].shape}")
         ch = convert_channel_angle_delay(data_matrices[model])[:,:,:,:config.n_taps]
-        
-        # Save channel data
-        scipy.io.savemat(os.path.join(dataset_folder, 'channel_ad_clip.mat'), 
-                        {'all_channel_ad_clip': np.swapaxes(ch, -1, -2)})
+        print(f"After angle-delay conversion: {ch.shape}")
         
         # Split data into train/val/test
-        train_val_test_split(ch.shape[0], 
-                           train_val_test_split=[0.8, 0.1, 0.1], 
-                           seed=config.seed,
-                           train_csv=os.path.join(dataset_folder, 'train_data_idx.csv'),
-                           val_csv=os.path.join(dataset_folder, 'val_data_idx.csv'),
-                           test_csv=os.path.join(dataset_folder, 'test_data_idx.csv'))
-
-        # Create data loaders using the factory function
-        train_loader, val_loader, test_loader = create_dataloaders(
-            dataset_folder=dataset_folder,
-            n_train_samples=config.n_train_samples,
-            n_val_samples=config.n_val_samples,
-            n_test_samples=config.n_test_samples,
-            train_batch_size=config.train_batch_size,
-            test_batch_size=config.test_batch_size,
-            random_state=config.seed
+        train_indices, val_indices, test_indices = train_val_test_split(
+            ch.shape[0], 
+            train_val_test_split=[0.8, 0.1, 0.1], 
+            seed=config.seed,
+            train_csv=None if USE_DIRECT_DATA else os.path.join(dataset_folder, 'train_data_idx.csv'),
+            val_csv=None if USE_DIRECT_DATA else os.path.join(dataset_folder, 'val_data_idx.csv'),
+            test_csv=None if USE_DIRECT_DATA else os.path.join(dataset_folder, 'test_data_idx.csv')
         )
+
+        if not USE_DIRECT_DATA:
+            # Save channel data only in file-based mode
+            scipy.io.savemat(os.path.join(dataset_folder, 'channel_ad_clip.mat'), 
+                           {'all_channel_ad_clip': np.swapaxes(ch, -1, -2)})
+            
+            # Create data loaders using file-based approach
+            train_loader, val_loader, test_loader = create_dataloaders(
+                dataset_folder=dataset_folder,
+                n_train_samples=config.n_train_samples,
+                n_val_samples=config.n_val_samples,
+                n_test_samples=config.n_test_samples,
+                train_batch_size=config.train_batch_size,
+                test_batch_size=config.test_batch_size,
+                random_state=config.seed
+            )
+        else:
+            # In direct mode, prepare data in same format as file-based mode
+            ch_prepared = np.swapaxes(ch, -1, -2)  # Same as what we save to .mat file
+            print(f"After swapaxes: {ch_prepared.shape}")
+            
+            # Create data loaders using direct data approach
+            train_loader, val_loader, test_loader = create_dataloaders(
+                direct_data=ch_prepared,
+                train_indices=train_indices,
+                val_indices=val_indices,
+                test_indices=test_indices,
+                n_train_samples=config.n_train_samples,
+                n_val_samples=config.n_val_samples,
+                n_test_samples=config.n_test_samples,
+                train_batch_size=config.train_batch_size,
+                test_batch_size=config.test_batch_size,
+                random_state=config.seed
+            )
 
         # Get model paths - for fine-tuning, config will return pretrained path
         model_path_save = config.get_model_path(model)
