@@ -26,7 +26,10 @@ from transformerAE import TransformerAE
 from typing import Tuple, Optional, Dict
 
 def create_dataloaders(
-    data: np.ndarray,
+    dataset_folder: str,
+    train_csv: str = "train_data_idx.csv",
+    val_csv: str = "val_data_idx.csv",
+    test_csv: str = "test_data_idx.csv",
     train_batch_size: int = 32,
     test_batch_size: int = 1024,
     n_train_samples: Optional[int] = None,
@@ -36,11 +39,11 @@ def create_dataloaders(
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """Create PyTorch DataLoaders for training, validation and testing.
     
-    Creates train/val/test splits from provided data array and returns
-    corresponding DataLoaders.
-    
     Args:
-        data: Numpy array containing channel data
+        dataset_folder: Base folder containing the dataset
+        train_csv: Name of training data CSV file
+        val_csv: Name of validation data CSV file
+        test_csv: Name of testing data CSV file
         train_batch_size: Batch size for training
         test_batch_size: Batch size for validation and testing
         n_train_samples: Number of training samples to use (None = use all)
@@ -51,34 +54,19 @@ def create_dataloaders(
     Returns:
         Tuple of (train_loader, val_loader, test_loader)
     """
-    # Calculate split sizes
-    n_samples = len(data)
-    train_size = int(0.8 * n_samples)
-    val_size = int(0.1 * n_samples)
-    
-    # Create random indices
-    np.random.seed(random_state)
-    indices = np.random.permutation(n_samples)
-    
-    # Split indices
-    train_indices = indices[:train_size]
-    val_indices = indices[train_size:train_size + val_size]
-    test_indices = indices[train_size + val_size:]
-    
-    # Create DataLoaders using array slices
     train_loader = DataLoader(
-        DataFeed.from_array(data[train_indices][:n_train_samples] if n_train_samples else data[train_indices]),
+        DataFeed(dataset_folder, train_csv, num_data_point=n_train_samples, random_state=random_state),
         batch_size=train_batch_size,
         shuffle=True,
     )
     
     val_loader = DataLoader(
-        DataFeed.from_array(data[val_indices][:n_val_samples] if n_val_samples else data[val_indices]),
+        DataFeed(dataset_folder, val_csv, num_data_point=n_val_samples, random_state=random_state),
         batch_size=test_batch_size,
     )
     
     test_loader = DataLoader(
-        DataFeed.from_array(data[test_indices][:n_test_samples] if n_test_samples else data[test_indices]),
+        DataFeed(dataset_folder, test_csv, num_data_point=n_test_samples, random_state=random_state),
         batch_size=test_batch_size,
     )
     
@@ -151,6 +139,7 @@ def train_model(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # Assuming that we are on a CUDA machine, this should print a CUDA device:
     print(device)
+    
     
     # instantiate the model and send to GPU
     print(f'Creating net with {n_refine_nets} refine nets at decoder side.')
@@ -371,11 +360,37 @@ def test_model(test_loader: DataLoader,
         encoded_vects = np.concatenate(encoded_vects)
         outputs = np.concatenate(outputs)
         
-    return {
-        "test_loss_all": test_loss,
-        "test_nmse_all": test_nmse,
-        "test_data_idx": test_data_idx,
-        "inputs": inputs,
-        "encoded": encoded_vects,
-        "outputs": outputs,
-    }
+        return {
+            "test_loss_all": test_loss,
+            "test_nmse_all": test_nmse,
+            "test_data_idx": test_data_idx,
+            "inputs": inputs,
+            "encoded": encoded_vects,
+            "outputs": outputs,
+        }
+    
+
+def test_from_csv(csv_folder, csv_name, model_path=None, encoded_dim=32, Nc=100, Nt=64, n_refine_nets=5):
+    """Test a CSI-Net model using data from CSV files.
+    
+    Args:
+        csv_folder: Folder containing CSV data files
+        csv_name: Name of CSV file to test on
+        model_path: Path to saved model weights
+        encoded_dim: Dimension of encoded representation
+        Nc: Number of subcarriers
+        Nt: Number of antennas
+        
+    Returns:
+        Dictionary containing test results
+    """
+    test_loader = DataLoader(DataFeed(csv_folder, csv_name, num_data_point=100000), 
+                             batch_size=1024)
+    
+    test_results = test_model(test_loader=test_loader,
+                              model_path=model_path,
+                              encoded_dim=encoded_dim,
+                              Nc=Nc,
+                              Nt=Nt,
+                              n_refine_nets=n_refine_nets)
+    return test_results

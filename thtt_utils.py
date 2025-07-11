@@ -7,12 +7,25 @@ operations to csinet_train_test.py.
 """
 
 import os
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 import numpy as np
+import scipy.io
 
-from csinet_train_test import train_model, create_dataloaders, test_model
+from csinet_train_test import test_from_csv, train_model, create_dataloaders
 from model_config import ModelConfig
+
+def nmse(A: np.ndarray, B: np.ndarray) -> float:
+    """Calculate Normalized Mean Square Error between two matrices.
+    
+    Args:
+        A: First matrix
+        B: Second matrix
+        
+    Returns:
+        NMSE value between matrices A and B
+    """
+    return float((np.linalg.norm(A - B, 'fro') / np.linalg.norm(A, 'fro'))**2)
 
 def convert_channel_angle_delay(channel: np.ndarray) -> np.ndarray:
     """
@@ -26,6 +39,40 @@ def convert_channel_angle_delay(channel: np.ndarray) -> np.ndarray:
     """
     # Apply FFT along the last dimension (delay domain)
     return np.fft.fft(channel, axis=-1)
+
+def train_val_test_split(n_samples: int,
+                        train_val_test_split: List[float] = [0.8, 0.1, 0.1],
+                        seed: int = 2,
+                        train_csv: Optional[str] = None,
+                        val_csv: Optional[str] = None,
+                        test_csv: Optional[str] = None) -> None:
+    """
+    Split data into train/val/test sets and save indices to CSV files.
+    
+    Args:
+        n_samples: Total number of samples
+        train_val_test_split: List of proportions for train/val/test split
+        seed: Random seed for reproducibility
+        train_csv: Path to save training indices
+        val_csv: Path to save validation indices
+        test_csv: Path to save test indices
+    """
+    np.random.seed(seed)
+    indices = np.random.permutation(n_samples)
+    
+    train_size = int(n_samples * train_val_test_split[0])
+    val_size = int(n_samples * train_val_test_split[1])
+    
+    train_indices = indices[:train_size]
+    val_indices = indices[train_size:train_size + val_size]
+    test_indices = indices[train_size + val_size:]
+    
+    if train_csv:
+        np.savetxt(train_csv, train_indices, fmt='%d', delimiter=',')
+    if val_csv:
+        np.savetxt(val_csv, val_indices, fmt='%d', delimiter=',')
+    if test_csv:
+        np.savetxt(test_csv, test_indices, fmt='%d', delimiter=',')
 
 def train_models(data_matrices: Dict[str, np.ndarray], config: ModelConfig) -> List[Dict]:
     """Train models for each area.
@@ -45,12 +92,27 @@ def train_models(data_matrices: Dict[str, np.ndarray], config: ModelConfig) -> L
     for model_idx, model in enumerate(models):
         print(f'Training in area {model_idx} ({model})')
         
+        dataset_folder = config.get_dataset_folder(model)
+        os.makedirs(dataset_folder, exist_ok=True)
+        
         # Convert channel to angle-delay domain
         ch = convert_channel_angle_delay(data_matrices[model])[:,:,:,:config.n_taps]
         
-        # Create data loaders directly from channel data
+        # Save channel data
+        scipy.io.savemat(os.path.join(dataset_folder, 'channel_ad_clip.mat'), 
+                        {'all_channel_ad_clip': np.swapaxes(ch, -1, -2)})
+        
+        # Split data into train/val/test
+        train_val_test_split(ch.shape[0], 
+                           train_val_test_split=[0.8, 0.1, 0.1], 
+                           seed=config.seed,
+                           train_csv=os.path.join(dataset_folder, 'train_data_idx.csv'),
+                           val_csv=os.path.join(dataset_folder, 'val_data_idx.csv'),
+                           test_csv=os.path.join(dataset_folder, 'test_data_idx.csv'))
+
+        # Create data loaders using the factory function
         train_loader, val_loader, test_loader = create_dataloaders(
-            data=ch,
+            dataset_folder=dataset_folder,
             n_train_samples=config.n_train_samples,
             n_val_samples=config.n_val_samples,
             n_test_samples=config.n_test_samples,
@@ -59,9 +121,9 @@ def train_models(data_matrices: Dict[str, np.ndarray], config: ModelConfig) -> L
             random_state=config.seed
         )
 
-        # Get model paths - for fine-tuning, load from source model
+        # Get model paths - for fine-tuning, config will return pretrained path
         model_path_save = config.get_model_path(model)
-        model_path_load = config.get_pretrained_path(model) if config.is_finetuning else None
+        model_path_load = config.get_model_path(model) if config.is_finetuning else None
 
         # Train model directly using train_model
         ret = train_model(
@@ -76,7 +138,7 @@ def train_models(data_matrices: Dict[str, np.ndarray], config: ModelConfig) -> L
             model_path_save=model_path_save,
             model_path_load=model_path_load,
             save_model=True,
-            load_model=config.is_finetuning,
+            load_model=bool(model_path_load),
             lr=config.learning_rate,
             n_refine_nets=config.n_refine_nets
         )
@@ -109,31 +171,29 @@ def cross_test_models(data_matrices: Dict[str, np.ndarray],
     
     for model_idx, model in enumerate(models):  # target dataset
         print(f'Testing in dataset {model}')
-        
-        # Convert channel to angle-delay domain
-        ch = convert_channel_angle_delay(data_matrices[model])[:,:,:,:config.n_taps]
-        
-        # Create test loader directly from data
-        _, _, test_loader = create_dataloaders(
-            data=ch,
-            n_test_samples=config.n_test_samples,
-            test_batch_size=config.test_batch_size,
-            random_state=config.seed
-        )
+
+        tgt_dataset_folder = config.get_dataset_folder(model)
+
+        # Create a test set with all data
+        n_samp = data_matrices[model].shape[0]
+        train_val_test_split(n_samp, 
+                           train_val_test_split=[0,0,1], 
+                           seed=config.seed, 
+                           test_csv=os.path.join(tgt_dataset_folder, 'all.csv'))
         
         for model_idx2, model2 in enumerate(models):  # source dataset
             if skip_same and model2 == model:
                 continue
                 
-            # Get model path based on whether it's a fine-tuned model
-            if config.is_finetuning:
-                model_path = config.get_model_path(model2)  # Load from fine-tuned folder
-            else:
-                model_path = os.path.join(config.dataset_main_folder, f"model_{model2}.pth")
+            model_path = config.get_model_path(model2)
+            
+            # Use appropriate test set
+            csv_name = 'test_data_idx.csv' if model_idx == model_idx2 else 'all.csv'
 
             # Test model
-            test_results = test_model(
-                test_loader=test_loader,
+            test_results = test_from_csv(
+                csv_folder=tgt_dataset_folder,
+                csv_name=csv_name,
                 model_path=model_path,
                 encoded_dim=config.encoded_dim,
                 Nc=config.n_taps,
