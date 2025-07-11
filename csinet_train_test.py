@@ -93,8 +93,10 @@ def train_model(
     
     # instantiate the model and send to GPU
     print(f'Creating net with {n_refine_nets} refine nets at decoder side.')
-    # net = CsinetPlus(encoded_dim, Nc, Nt, n_refine_nets=n_refine_nets)
-    net = TransformerAE(encoded_dim, Nc, Nt) # kbits=None = no quantization
+    if n_refine_nets == -1:
+        net = TransformerAE(encoded_dim, Nc, Nt) # kbits=None = no quantization
+    else:
+        net = CsinetPlus(encoded_dim, Nc, Nt, n_refine_nets=n_refine_nets)
     net.to(device)
 
     # path to save the model
@@ -108,7 +110,7 @@ def train_model(
 
     # set up loss function and optimizer
     criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(net.parameters(), lr=lr)
+    optimizer = torch.optim.AdamW(net.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.MultiStepLR(
         optimizer, milestones=[50, 90], gamma=0.5
     )
@@ -152,8 +154,7 @@ def train_model(
         
         if val_loader is None:
             continue  # no validation is needed
-
-        if epoch >= num_epoch - 50:
+        else:
             # validation
             net.eval()
             with torch.no_grad():
@@ -185,6 +186,8 @@ def train_model(
             all_val_nmse.append(val_nmse.item())
             print("val_loss={:.3e}".format(val_loss), flush=True)
             print("val_nmse={:.3f}".format(val_nmse), flush=True)
+            if val_nmse < 0.02:
+                break
             
     if model_path_save:
         torch.save(net.state_dict(), model_path_save)
@@ -301,7 +304,7 @@ def test_model(test_loader, net=None, model_path=None, encoded_dim=32,
         }
     
 
-def test_from_csv(csv_folder, csv_name, model_path=None, encoded_dim=32, Nc=100, Nt=64):
+def test_from_csv(csv_folder, csv_name, model_path=None, encoded_dim=32, Nc=100, Nt=64, n_refine_nets=5):
     """Test a CSI-Net model using data from CSV files.
     
     Args:
@@ -322,7 +325,8 @@ def test_from_csv(csv_folder, csv_name, model_path=None, encoded_dim=32, Nc=100,
                               model_path=model_path,
                               encoded_dim=encoded_dim,
                               Nc=Nc,
-                              Nt=Nt)
+                              Nt=Nt,
+                              n_refine_nets=n_refine_nets)
     return test_results
 
 

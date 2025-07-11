@@ -171,7 +171,8 @@ def cross_test_models(models: list,
                      NC: int = 16,
                      Nt: int = 32,
                      seed: int = 2,
-                     skip_same: bool = True) -> Tuple[List[Dict], np.ndarray]:
+                     skip_same: bool = False,
+                     n_refine_nets: int = 5) -> Tuple[List[Dict], np.ndarray]:
     """
     Test models across different datasets.
     
@@ -184,7 +185,9 @@ def cross_test_models(models: list,
         NC: Number of delay taps
         Nt: Number of antennas
         seed: Random seed for reproducibility
-        
+        skip_same: Whether to skip testing the same model
+        n_refine_nets: Number of refinement networks
+
     Returns:
         Tuple of (list of test results, results matrix)
     """
@@ -223,7 +226,8 @@ def cross_test_models(models: list,
                 model_path=src_model_path,
                 encoded_dim=encoded_dim,
                 Nc=NC,
-                Nt=Nt
+                Nt=Nt, 
+                n_refine_nets=n_refine_nets
             )
 
             mean_nmse = np.mean(test_results['test_nmse_all'])
@@ -350,50 +354,30 @@ def train_with_percentages(model_name: str, data_matrices: dict, dataset_main_fo
     
     # Create nested sets of indices
     nested_indices = {}
+    test_indices = {}
     for p in percentages:
         n_samples = int(n_samp * p)
         nested_indices[p] = all_indices[:n_samples]
+        test_indices[p] = all_indices[n_samples:]
     
     # Print the sizes to verify
     for p, indices in nested_indices.items():
         print(f"{p*100}% of data: {len(indices)} samples")
     
-    # # Split remaining data for validation and testing
-    # val_idxs = all_indices[int(n_samp*.8):int(n_samp*.9)]
-    # test_idxs = all_indices[int(n_samp*.9):]
-    
-    # # Generate CSV indices for each portion
-    # dataset_folder = os.path.join(dataset_main_folder, f'model_{model_name}')
-    # os.makedirs(dataset_folder, exist_ok=True)
-    
-    # for p in percentages:
-    #     df1 = pd.DataFrame(nested_indices[p], columns=["data_idx"])
-    #     df1.to_csv(os.path.join(dataset_folder, f'train_data_idx_v2_{p*100}.csv'), index=False)
-    
-    # # Save val and test indices
-    # df2 = pd.DataFrame(val_idxs, columns=["data_idx"])
-    # df3 = pd.DataFrame(test_idxs, columns=["data_idx"])
-    # df2.to_csv(os.path.join(dataset_folder, 'val_data_idx_v2.csv'), index=False)
-    # df3.to_csv(os.path.join(dataset_folder, 'test_data_idx_v2.csv'), index=False)
-    
-
     # Train with different percentages
     test_nmse_list = []
     
     for p in tqdm(percentages, desc=f"Training {model_name} with different percentages"):
-        # Create a subset of the data matrix for this percentage
-        subset_data = {model_name: model_data[nested_indices[p]]}
-        
         # Train model
         res, _ = train_models(
             [model_name], 
-            subset_data,
+            data_matrices,
             dataset_main_folder,
             models_folder=models_folder,
             num_epochs=epochs,
             n_train_samples=len(nested_indices[p]),
-            n_val_samples=int(len(nested_indices[p]) * 0.1),  # 10% for validation
-            n_test_samples=int(len(nested_indices[p]) * 0.1)  # 10% for testing
+            n_val_samples=int(len(nested_indices[p]) * 0.2),  # 20% for validation
+            n_test_samples=int(len(test_indices[p]))  # rest for testing
         )
         
         test_nmse_list.append(10 * np.log10(res[0]['test_nmse']))

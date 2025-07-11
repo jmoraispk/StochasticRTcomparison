@@ -41,7 +41,7 @@ from data_gen import DataConfig, load_data_matrices
 
 # Configure data generation
 cfg = DataConfig(
-    n_samples = 10_000,
+    n_samples = 50_000,
     n_prbs = 20,
     n_rx = 1,
     n_tx = N_ANT,
@@ -52,7 +52,7 @@ cfg = DataConfig(
 # UMAP parameters
 cfg.x_points = cfg.n_samples #int(2e5)  # Number of points to sample from each dataset (randomly)
 cfg.seed = 42  # Set to None to keep random
-cfg.rt_uniform_steps = [2, 2]
+cfg.rt_uniform_steps = [1, 1]
 
 # Load data
 data_matrices = load_data_matrices(models, cfg)
@@ -78,25 +78,26 @@ from thtt_utils import (
 )
 # NC=16 * n_ant=32 * 2 -> 32 encoded dim(32x reduction)
 
-models_t = ['CDL-D']
-data_matrices_t = {'CDL-D': data_matrices['CDL-D']}
+# models_t = ['CDL-D']
+# data_matrices_t = {'CDL-D': data_matrices['CDL-D']}
 
-# models_t, data_matrices_t = models, data_matrices
+models_t, data_matrices_t = models, data_matrices
 
 # Train models
 all_res, model_paths = train_models(models_t, data_matrices_t, DATASET_MAIN_FOLDER, 
-                                    encoded_dim=ENCODED_DIM, NC=N_TAPS,
-                                    num_epochs=5, train_batch_size=16)
+    encoded_dim=ENCODED_DIM, NC=N_TAPS,num_epochs=15, train_batch_size=16, 
+    learning_rate=1e-2, n_refine_nets=6)   # CSInetPlus
+    # learning_rate=1e-4, n_refine_nets=-1)  # TransformerAE
 
 #%% Plot Training Results
 
-plot_training_results(all_res, models_t)
+plot_training_results(all_res, models_t)  # add option to plot test results
 
 #%% Cross-Test Models
 
 all_test_results, results_matrix = \
     cross_test_models(models, data_matrices, DATASET_MAIN_FOLDER, 
-                      encoded_dim=ENCODED_DIM, NC=N_TAPS, Nt=N_ANT)
+                      encoded_dim=ENCODED_DIM, NC=N_TAPS, Nt=N_ANT, n_refine_nets=6)
 
 #%% Plot Test Results
 
@@ -124,7 +125,7 @@ for src_idx, source_model in enumerate(models):
             target_model, data_matrices, DATASET_MAIN_FOLDER,
             models_folder=fine_tuned_models_folder,
             percentages=[data_percentage], load_model=True,
-            model_path=model_paths[src_idx], epochs=20,
+            model_path=model_paths[src_idx], epochs=10,
         )
 
 # This should TEST the fine-tuned models!!!!
