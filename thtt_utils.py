@@ -15,18 +15,6 @@ import scipy.io
 from csinet_train_test import test_from_csv, train_model, create_dataloaders
 from model_config import ModelConfig
 
-def nmse(A: np.ndarray, B: np.ndarray) -> float:
-    """Calculate Normalized Mean Square Error between two matrices.
-    
-    Args:
-        A: First matrix
-        B: Second matrix
-        
-    Returns:
-        NMSE value between matrices A and B
-    """
-    return float((np.linalg.norm(A - B, 'fro') / np.linalg.norm(A, 'fro'))**2)
-
 def convert_channel_angle_delay(channel: np.ndarray) -> np.ndarray:
     """
     Convert channel to angle-delay domain.
