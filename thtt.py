@@ -121,11 +121,11 @@ for src_idx, source_model in enumerate(models):
             continue
 
         # Train UMa model with pre-trained weights
-        uma_test_nmse, uma_name = train_with_percentages(
+        model_test_nmse, model_name = train_with_percentages(
             target_model, data_matrices, DATASET_MAIN_FOLDER,
             models_folder=fine_tuned_models_folder,
             percentages=[data_percentage], load_model=True,
-            model_path=model_paths[src_idx], epochs=10,
+            model_path=model_paths[src_idx], epochs=2,
         )
 
 # This should TEST the fine-tuned models!!!!
