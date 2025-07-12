@@ -26,7 +26,7 @@ from transformerAE import TransformerAE
 from typing import Tuple, Optional, Dict
 
 # If True, data will be passed directly to data loaders without loading from files
-USE_DIRECT_DATA = True
+USE_DIRECT_DATA = False
 
 def create_dataloaders(
     dataset_folder: str = None,
@@ -65,56 +65,49 @@ def create_dataloaders(
     Returns:
         Tuple of (train_loader, val_loader, test_loader)
     """
-    if USE_DIRECT_DATA and direct_data is not None:
-        # Direct data approach
-        train_loader = DataLoader(
-            DataFeed(direct_data=direct_data[train_indices], 
-                    direct_indices=train_indices,
-                    num_data_point=n_train_samples,
-                    random_state=random_state),
-            batch_size=train_batch_size,
-            shuffle=True,
-        )
-        
-        val_loader = DataLoader(
-            DataFeed(direct_data=direct_data[val_indices],
-                    direct_indices=val_indices,
-                    num_data_point=n_val_samples,
-                    random_state=random_state),
-            batch_size=test_batch_size,
-        )
-        
-        test_loader = DataLoader(
-            DataFeed(direct_data=direct_data[test_indices],
-                    direct_indices=test_indices,
-                    num_data_point=n_test_samples,
-                    random_state=random_state),
-            batch_size=test_batch_size,
-        )
-    else:
-        # File-based approach
-        train_loader = DataLoader(
-            DataFeed(dataset_folder, train_csv, 
-                    num_data_point=n_train_samples, 
-                    random_state=random_state),
-            batch_size=train_batch_size,
-            shuffle=True,
-        )
-        
-        val_loader = DataLoader(
-            DataFeed(dataset_folder, val_csv, 
-                    num_data_point=n_val_samples, 
-                    random_state=random_state),
-            batch_size=test_batch_size,
-        )
-        
-        test_loader = DataLoader(
-            DataFeed(dataset_folder, test_csv, 
-                    num_data_point=n_test_samples, 
-                    random_state=random_state),
-            batch_size=test_batch_size,
-        )
+    # Create train loader
+    train_loader = DataLoader(
+        DataFeed(
+            data_root=dataset_folder,
+            csv_path=train_csv,
+            direct_data=direct_data[train_indices] if direct_data is not None else None,
+            direct_indices=train_indices,
+            num_data_point=n_train_samples,
+            random_state=random_state,
+            use_direct_data=USE_DIRECT_DATA
+        ),
+        batch_size=train_batch_size,
+        shuffle=True,
+    )
     
+    # Create validation loader
+    val_loader = DataLoader(
+        DataFeed(
+            data_root=dataset_folder,
+            csv_path=val_csv,
+            direct_data=direct_data[val_indices] if direct_data is not None else None,
+            direct_indices=val_indices,
+            num_data_point=n_val_samples,
+            random_state=random_state,
+            use_direct_data=USE_DIRECT_DATA
+        ),
+        batch_size=test_batch_size,
+    )
+    
+    # Create test loader
+    test_loader = DataLoader(
+        DataFeed(
+            data_root=dataset_folder,
+            csv_path=test_csv,
+            direct_data=direct_data[test_indices] if direct_data is not None else None,
+            direct_indices=test_indices,
+            num_data_point=n_test_samples,
+            random_state=random_state,
+            use_direct_data=USE_DIRECT_DATA
+        ),
+        batch_size=test_batch_size,
+    )
+
     return train_loader, val_loader, test_loader
 
 def cal_nmse(A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
