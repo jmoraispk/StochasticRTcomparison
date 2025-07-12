@@ -12,48 +12,80 @@ import torch
 import sklearn
 from torch.utils.data import Dataset, DataLoader
 from scipy.io import loadmat
+from typing import Tuple
 
 # If True, data will be passed directly to data loaders without loading from files
-USE_DIRECT_DATA = True
+USE_DIRECT_DATA = False
 
-def create_samples(data_root, csv_path, random_state, num_data_point, portion, select_data_idx):
-    # load channel data
-    channel_ad_clip = loadmat(data_root+'/channel_ad_clip.mat')['all_channel_ad_clip']
-
-    # load data index
-    if select_data_idx is None:
-        data_idx = np.loadtxt(os.path.join(data_root, csv_path), dtype=int)
-    else:
-        data_idx = select_data_idx
-        
-    # Remove the idxs where it's 0:
-    idxs_to_del = np.unique(np.where(np.abs(channel_ad_clip[:, 0, 0] == 0))[0])
-    if len(idxs_to_del) > 0:
-        print(f'Dropping 0-channel indices {idxs_to_del}')
-    data_idx_filtered = np.array([idx for idx in data_idx if idx not in idxs_to_del])
-    data_idx = data_idx_filtered.astype(int)
+def create_samples(data_root: str = None, 
+                  csv_path: str = None, 
+                  random_state: int = 0, 
+                  num_data_point: int = None, 
+                  portion: float = 1.0, 
+                  select_data_idx: np.ndarray = None,
+                  direct_data: np.ndarray = None,
+                  direct_indices: np.ndarray = None,
+                  use_direct_data: bool = USE_DIRECT_DATA) -> Tuple[np.ndarray, np.ndarray]:
+    """Load and prepare channel data from either file or direct input.
     
-    channel_ad_clip = channel_ad_clip[data_idx, ...]
-
-    # shuffle
-    channel_ad_clip, data_idx = sklearn.utils.shuffle(channel_ad_clip, data_idx, random_state=random_state)
+    Args:
+        data_root: Base directory containing data files
+        csv_path: Path to CSV file with indices
+        random_state: Random seed for shuffling
+        num_data_point: Number of data points to use
+        portion: Portion of data to use
+        select_data_idx: Specific indices to select
+        direct_data: Direct channel data array
+        direct_indices: Direct indices array
+        use_direct_data: Whether to use direct data (True) or load from files (False)
+        
+    Returns:
+        Tuple of (channel_data, indices)
+    """
+    # Load data from appropriate source
+    if use_direct_data and direct_data is not None:
+        channel_ad_clip = direct_data
+        data_idx = direct_indices if direct_indices is not None else np.arange(len(direct_data))
+    else:
+        # Load from files
+        channel_ad_clip = loadmat(os.path.join(data_root, 'channel_ad_clip.mat'))['all_channel_ad_clip']
+        if select_data_idx is None:
+            data_idx = np.loadtxt(os.path.join(data_root, csv_path), dtype=int)
+        else:
+            data_idx = select_data_idx
+            
+        # Remove the idxs where it's 0:
+        idxs_to_del = np.unique(np.where(np.abs(channel_ad_clip[:, 0, 0] == 0))[0])
+        if len(idxs_to_del) > 0:
+            print(f'Dropping 0-channel indices {idxs_to_del}')
+        data_idx_filtered = np.array([idx for idx in data_idx if idx not in idxs_to_del])
+        data_idx = data_idx_filtered.astype(int)
+        
+        # Select data using indices
+        channel_ad_clip = channel_ad_clip[data_idx, ...]
+    
+    # Common processing for both data sources
+    
+    # Shuffle if requested
+    if random_state is not None:
+        channel_ad_clip, data_idx = sklearn.utils.shuffle(channel_ad_clip, data_idx, random_state=random_state)
     channel_ad_clip = np.squeeze(channel_ad_clip)
 
-    if select_data_idx is None: # if no particular data is selected
+    # Handle data point selection
+    if select_data_idx is None:  # if no particular data is selected
         if num_data_point:
             channel_ad_clip = channel_ad_clip[:num_data_point, ...]
             data_idx = data_idx[:num_data_point, ...]
         else:
             num_data = data_idx.shape[0]
-            p = int(num_data*portion)
-
+            p = int(num_data * portion)
             channel_ad_clip = channel_ad_clip[:p, ...]
             data_idx = data_idx[:p, ...]
 
+    # Apply normalization consistently for both data sources
     channel_ad_clip /= np.linalg.norm(channel_ad_clip, ord='fro', axis=(-1,-2), keepdims=True)
-    
     channel_ad_clip = channel_ad_clip / np.expand_dims(channel_ad_clip[:, 0, 0] / 
-                                                        np.abs(channel_ad_clip[:, 0, 0]), (1,2))
+                                                      np.abs(channel_ad_clip[:, 0, 0]), (1,2))
 
     return channel_ad_clip, data_idx
 
@@ -73,35 +105,18 @@ class DataFeed(Dataset):
             direct_data: Direct channel data array
             direct_indices: Direct indices array
         """
-        if USE_DIRECT_DATA and direct_data is not None:
-            self.channel_ad_clip = direct_data  # Already in correct format from train_models
-            self.data_idx = direct_indices if direct_indices is not None else np.arange(len(direct_data))
-        else:
-            self.data_root = data_root
-            self.channel_ad_clip, self.data_idx = create_samples(data_root, csv_path, 
-                                                             random_state, num_data_point, 
-                                                             portion, select_data_idx)
-            
-        # Handle num_data_point and portion
-        if num_data_point:
-            self.channel_ad_clip = self.channel_ad_clip[:num_data_point, ...]
-            self.data_idx = self.data_idx[:num_data_point, ...]
-        elif portion < 1.0:
-            num_data = len(self.data_idx)
-            p = int(num_data * portion)
-            self.channel_ad_clip = self.channel_ad_clip[:p, ...]
-            self.data_idx = self.data_idx[:p, ...]
-            
-        # Shuffle if requested
-        if random_state is not None:
-            self.channel_ad_clip, self.data_idx = sklearn.utils.shuffle(
-                self.channel_ad_clip, self.data_idx, random_state=random_state
-            )
-            
-        # Apply same normalization in both modes
-        self.channel_ad_clip /= np.linalg.norm(self.channel_ad_clip, ord='fro', axis=(-1,-2), keepdims=True)
-        self.channel_ad_clip = self.channel_ad_clip / np.expand_dims(self.channel_ad_clip[:, 0, 0] / 
-                                                        np.abs(self.channel_ad_clip[:, 0, 0]), (1,2))
+        # Get data from create_samples with all parameters
+        self.channel_ad_clip, self.data_idx = create_samples(
+            data_root=data_root,
+            csv_path=csv_path,
+            random_state=random_state,
+            num_data_point=num_data_point,
+            portion=portion,
+            select_data_idx=select_data_idx,
+            direct_data=direct_data,
+            direct_indices=direct_indices,
+            use_direct_data=USE_DIRECT_DATA
+        )
 
     def __len__(self):
         return len(self.data_idx)
