@@ -2,7 +2,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from typing import Optional
 
-def plot_training_results(all_res: list, models: list, save_path: Optional[str] = None) -> None:
+def plot_training_results(all_res: list, models: list, title: Optional[str] = None,
+                          save_path: Optional[str] = None) -> None:
     """
     Plot training and validation NMSE for each area.
     
@@ -37,7 +38,7 @@ def plot_training_results(all_res: list, models: list, save_path: Optional[str] 
     plt.grid(True, alpha=0.3)
     plt.xlabel('Epoch', fontsize=16)
     plt.ylabel('NMSE (dB)', fontsize=16)
-    plt.title('Training and Validation NMSE per Area', fontsize=14)
+    plt.title(title if title else 'Training and Validation NMSE per Model', fontsize=14)
     plt.legend(fontsize=14)#, bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.tight_layout()
     plt.xticks(fontsize=14)

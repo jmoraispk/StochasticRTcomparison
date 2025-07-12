@@ -78,7 +78,7 @@ base_config = ModelConfig(
     
     # Training parameters
     train_batch_size=16,
-    num_epochs=7,
+    num_epochs=2,
     learning_rate=1e-2,
     
     # Directory structure
@@ -112,10 +112,9 @@ print(df.to_string())
 #%% Cross-fine-tune
 
 # Calculate sizes for train/test split
-percent = 0.1  # Use 10% for fine-tuning
-n_samples = next(iter(data_matrices.values())).shape[0] # get first dataset size
-n_train = int(n_samples * percent)  
-n_test = n_samples - n_train
+percent = 0.4  # Use 10% for fine-tuning
+n_samples = data_matrices[models[0]].shape[0]
+n_train = int(n_samples * percent)
 
 # Create train/test splits for each model
 train_data = {}
@@ -137,8 +136,9 @@ for source_idx, source_model in enumerate(models):
     for target_idx, target_model in enumerate(models):
         if target_model == source_model:
             continue
-            
-        print(f"\nFine-tuning {source_model} -> {target_model}")
+        
+        title = f'Fine-tuning {source_model} -> {target_model}'
+        print(f"\n{title}")
         
         # Create config for this specific fine-tuning pair
         pair_config = base_config.for_finetuning(
@@ -151,10 +151,23 @@ for source_idx, source_model in enumerate(models):
         target_train_data = {target_model: train_data[target_model]}
         results = train_models(target_train_data, pair_config)
 
+        plot_training_results(results, [source_model], title=title)
+        
+        # TODO: if i train 3 models, how are they going to get saved (names)?
+
 #%%
 # Test all fine-tuned models on held-out test data
 print("\nCross-testing all fine-tuned models...")
-all_test_results, results_matrix = cross_test_models(test_data, base_config)
+
+# Create config for testing fine-tuned models
+test_config = base_config.clone(
+    dataset_main_folder=base_config.dataset_main_folder + '_finetuned'
+)
+
+# test_config = base_config.clone()
+
+# Test using fine-tuned models
+all_test_results, results_matrix = cross_test_models(test_data, test_config)
 
 # Plot fine-tuning test results
 plot_test_matrix(results_matrix, models)

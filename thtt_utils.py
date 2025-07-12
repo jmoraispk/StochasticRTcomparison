@@ -154,12 +154,8 @@ def cross_test_models(data_matrices: Dict[str, np.ndarray],
         ch_prepared = np.swapaxes(ch, -1, -2)
         
         # Create a test set with all data
-        n_samp = ch.shape[0]
-        _, _, test_indices = train_val_test_split(
-            n_samp, 
-            train_val_test_split=[0, 0, 1], 
-            seed=config.seed
-        )
+        _, _, test_indices = train_val_test_split(ch.shape[0], 
+            train_val_test_split=[0, 0, 1], seed=config.seed)
         
         for model_idx2, model2 in enumerate(models):  # source dataset
             if skip_same and model2 == model:
