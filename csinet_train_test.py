@@ -25,6 +25,9 @@ from einops import rearrange
 from transformerAE import TransformerAE
 from typing import Tuple, Optional, Dict
 
+# If True, data will be passed directly to data loaders without loading from files
+USE_DIRECT_DATA = True
+
 def create_dataloaders(
     dataset_folder: str = None,
     train_csv: str = "train_data_idx.csv",
@@ -54,15 +57,15 @@ def create_dataloaders(
         n_val_samples: Number of validation samples to use (None = use all)
         n_test_samples: Number of test samples to use (None = use all)
         random_state: Random seed for reproducibility
-        direct_data: Optional direct data array (for direct data approach)
-        train_indices: Optional training indices for direct data
-        val_indices: Optional validation indices for direct data
-        test_indices: Optional test indices for direct data
+        direct_data: Direct data array (for direct data approach)
+        train_indices: Training indices for direct data
+        val_indices: Validation indices for direct data
+        test_indices: Test indices for direct data
         
     Returns:
         Tuple of (train_loader, val_loader, test_loader)
     """
-    if direct_data is not None:
+    if USE_DIRECT_DATA and direct_data is not None:
         # Direct data approach
         train_loader = DataLoader(
             DataFeed(direct_data=direct_data[train_indices], 

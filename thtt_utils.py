@@ -15,9 +15,6 @@ import scipy.io
 from csinet_train_test import test_from_csv, train_model, create_dataloaders
 from model_config import ModelConfig
 
-# If True, data will be passed directly to data loaders without loading from files
-USE_DIRECT_DATA = False
-
 def convert_channel_angle_delay(channel: np.ndarray) -> np.ndarray:
     """
     Convert channel to angle-delay domain.
@@ -115,13 +112,13 @@ def train_models(data_matrices: Dict[str, np.ndarray], config: ModelConfig) -> L
         
         print(f"Data shape after swapaxes: {ch_prepared.shape}")
             
-        # Create data loaders - if USE_DIRECT_DATA is True, pass the data directly
+        # Create data loaders - always pass all parameters
         train_loader, val_loader, test_loader = create_dataloaders(
             dataset_folder=dataset_folder,
-            direct_data=ch_prepared if USE_DIRECT_DATA else None,
-            train_indices=train_indices if USE_DIRECT_DATA else None,
-            val_indices=val_indices if USE_DIRECT_DATA else None,
-            test_indices=test_indices if USE_DIRECT_DATA else None,
+            direct_data=ch_prepared,
+            train_indices=train_indices,
+            val_indices=val_indices,
+            test_indices=test_indices,
             n_train_samples=config.n_train_samples,
             n_val_samples=config.n_val_samples,
             n_test_samples=config.n_test_samples,
