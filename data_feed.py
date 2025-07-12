@@ -12,7 +12,6 @@ import torch
 import sklearn
 from torch.utils.data import Dataset, DataLoader
 from scipy.io import loadmat
-from einops import rearrange
 
 def create_samples(data_root, csv_path, random_state, num_data_point, portion, select_data_idx):
     # load channel data

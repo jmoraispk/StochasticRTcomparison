@@ -108,6 +108,7 @@ def train_models(data_matrices: Dict[str, np.ndarray], config: ModelConfig) -> L
         )
 
         if not USE_DIRECT_DATA:
+            print('Saving channel data to .mat file')
             # Save channel data only in file-based mode
             scipy.io.savemat(os.path.join(dataset_folder, 'channel_ad_clip.mat'), 
                            {'all_channel_ad_clip': np.swapaxes(ch, -1, -2)})

@@ -278,8 +278,6 @@ def train_model(
             all_val_nmse.append(val_nmse.item())
             print("val_loss={:.3e}".format(val_loss), flush=True)
             print("val_nmse={:.3f}".format(val_nmse), flush=True)
-            if val_nmse < 0.02:
-                break
             
     if model_path_save:
         torch.save(net.state_dict(), model_path_save)

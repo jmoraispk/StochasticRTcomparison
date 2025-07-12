@@ -78,7 +78,7 @@ base_config = ModelConfig(
     
     # Training parameters
     train_batch_size=16,
-    num_epochs=2,
+    num_epochs=7,
     learning_rate=1e-2,
     
     # Directory structure
