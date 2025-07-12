@@ -153,21 +153,40 @@ for source_idx, source_model in enumerate(models):
 
         plot_training_results(results, [source_model], title=title)
         
-        # TODO: if i train 3 models, how are they going to get saved (names)?
-
 #%%
 # Test all fine-tuned models on held-out test data
 print("\nCross-testing all fine-tuned models...")
 
-# Create config for testing fine-tuned models
-test_config = base_config.clone(
-    dataset_main_folder=base_config.dataset_main_folder + '_finetuned'
-)
-
-# test_config = base_config.clone()
-
 # Test using fine-tuned models
-all_test_results, results_matrix = cross_test_models(test_data, test_config)
+all_test_results = []
+n_models = len(models)
+results_matrix = np.zeros((n_models, n_models))
+
+for source_idx, source_model in enumerate(models):
+    for target_idx, target_model in enumerate(models):
+        if target_model == source_model:
+            # For same model pairs, use the original model
+            test_config = base_config.clone()
+        else:
+            # For cross-model pairs, use the fine-tuned model
+            test_config = base_config.for_finetuning(
+                source_model=source_model,
+                num_epochs=5  # This doesn't matter for testing
+            )
+            
+        # Test the model
+        test_results, _ = cross_test_models(
+            {target_model: test_data[target_model]},  # Only test on target dataset
+            test_config
+        )
+        
+        # Store results
+        mean_nmse = np.mean(test_results[0]['test_nmse_all'])
+        results_matrix[source_idx, target_idx] = mean_nmse
+        all_test_results.extend(test_results)
+        
+        # Print progress
+        print(f'Testing {source_model} -> {target_model}: {10*np.log10(mean_nmse):.1f} dB')
 
 # Plot fine-tuning test results
 plot_test_matrix(results_matrix, models)

@@ -67,28 +67,28 @@ class ModelConfig:
         """Get path to save/load model weights.
         
         When fine-tuning:
-        - Saves fine-tuned weights to fine-tuned folder
+        - For loading: Uses source model path from base folder
+        - For saving: Uses fine-tuned folder with source model name
+        - Format: model_{target}_{source}.pth
         
         Otherwise:
         - Uses base folder for both loading and saving
+        - Format: model_{model}.pth
         """
         if self.is_finetuning:
-            # When fine-tuning, save to fine-tuned folder
-            folder = self.dataset_main_folder + '_finetuned'
+            # When fine-tuning, we load from source model and save to fine-tuned folder
+            if model == self.source_model:
+                # When loading source model, use base folder
+                folder = self.dataset_main_folder
+                return os.path.join(folder, f"model_{model}.pth")
+            else:
+                # When saving fine-tuned model, use fine-tuned folder
+                folder = self.dataset_main_folder + '_finetuned'
+                return os.path.join(folder, f"model_{model}_{self.source_model}.pth")
         else:
             # Normal training uses base folder
             folder = self.dataset_main_folder
-            
-        return os.path.join(folder, f"model_{model}.pth")
-        
-    def get_pretrained_path(self, model: str) -> str:
-        """Get path to pretrained model weights.
-        
-        Only used when fine-tuning to load source model weights.
-        """
-        if not self.is_finetuning:
-            raise ValueError("get_pretrained_path can only be called when fine-tuning")
-        return os.path.join(self.dataset_main_folder, f"model_{self.source_model}.pth")
+            return os.path.join(folder, f"model_{model}.pth")
 
     def clone(self, **kwargs) -> 'ModelConfig':
         """Create a copy of this config with some parameters changed."""

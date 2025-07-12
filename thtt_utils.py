@@ -101,9 +101,15 @@ def train_models(data_matrices: Dict[str, np.ndarray], config: ModelConfig) -> L
                                         config.test_batch_size,
                                         config.n_test_samples)
 
-        # Get model paths - for fine-tuning, config will return pretrained path
-        model_path_save = config.get_model_path(model)
-        model_path_load = config.get_model_path(model) if config.is_finetuning else None
+        # Get model paths
+        if config.is_finetuning:
+            # When fine-tuning, load from source model and save to fine-tuned path
+            model_path_load = config.get_model_path(config.source_model)  # Load from source
+            model_path_save = config.get_model_path(model)  # Save to fine-tuned path
+        else:
+            # Normal training
+            model_path_save = config.get_model_path(model)
+            model_path_load = None
 
         # Train model with deterministic behavior
         ret = train_model(
