@@ -132,7 +132,8 @@ def train_models(data_matrices: Dict[str, np.ndarray], config: ModelConfig) -> L
 
 def cross_test_models(data_matrices: Dict[str, np.ndarray],
                      config: ModelConfig,
-                     skip_same: bool = False) -> Tuple[List[Dict], np.ndarray]:
+                     skip_same: bool = False,
+                     use_finetuned: bool = False) -> Tuple[List[Dict], np.ndarray]:
     """Test models across different datasets.
     
     Args:
@@ -140,6 +141,9 @@ def cross_test_models(data_matrices: Dict[str, np.ndarray],
                       The keys define which models will be tested.
         config: Model configuration object
         skip_same: Whether to skip testing the same model
+        use_finetuned: Whether to use fine-tuned models for cross-testing.
+                      If True, loads models from fine-tuned folder.
+                      If False, uses base models from original folder.
 
     Returns:
         Tuple of:
@@ -152,39 +156,42 @@ def cross_test_models(data_matrices: Dict[str, np.ndarray],
     n_models = len(models)
     results_matrix = np.zeros((n_models, n_models))
     
-    for model_idx, model in enumerate(models):  # target dataset
-        print(f'Testing on dataset {model}')
+    for target_idx, target_model in enumerate(models):  # target dataset
+        print(f'Testing on dataset {target_model}')
         
         # Convert target data to angle-delay domain
-        ch = convert_channel_angle_delay(data_matrices[model])[:,:,:,:config.n_taps]
+        ch = convert_channel_angle_delay(data_matrices[target_model])[:,:,:,:config.n_taps]
         ch_prepared = np.swapaxes(ch, -1, -2)
         
         # Create a test set with all data
         _, _, test_indices = train_val_test_split(ch.shape[0], 
             train_val_test_split=[0, 0, 1], seed=config.seed)
         
-        for model_idx2, model2 in enumerate(models):  # source dataset
-            if skip_same and model2 == model:
+        # Create test loader with all data for cross-testing
+        test_loader = create_dataloader(
+            ch_prepared,
+            test_indices,
+            config.test_batch_size
+        )
+        
+        for source_idx, source_model in enumerate(models):  # source dataset
+            if skip_same and source_model == target_model:
                 continue
                 
-            # If we're testing a fine-tuned model, set up config to load it
-            if config.is_finetuning:
-                # We want to load the model that was fine-tuned from source_model to model2
+            # Determine which model to load based on testing mode
+            if use_finetuned and source_model != target_model:
+                # Use fine-tuned model for cross-model testing
                 test_config = config.clone(
                     is_finetuning=True,
-                    source_model=config.source_model
+                    source_model=source_model
                 )
-                model_path = test_config.get_model_path(model2)
+                model_path = test_config.get_model_path(target_model)
+                model_type = "fine-tuned"
             else:
-                # Regular testing - load original model
-                model_path = config.get_model_path(model2)
-            
-            # Create test loader with all data for cross-testing
-            test_loader = create_dataloader(
-                ch_prepared,
-                test_indices,
-                config.test_batch_size
-            )
+                # Use base model (either same-model testing or when use_finetuned=False)
+                test_config = config.clone(is_finetuning=False)
+                model_path = test_config.get_model_path(source_model)
+                model_type = "original"
 
             # Test model with deterministic behavior
             test_results = test_model(
@@ -198,10 +205,15 @@ def cross_test_models(data_matrices: Dict[str, np.ndarray],
             )
 
             mean_nmse = np.mean(test_results['test_nmse_all'])
-            print(f'Mean NMSE for {model2} -> {model}: {mean_nmse:.3f} = {10*np.log10(mean_nmse):.1f} dB')
+            
+            # Print progress with clear indication of which model we're using
+            if source_model == target_model:
+                print(f'Testing original {source_model}: {10*np.log10(mean_nmse):.1f} dB')
+            else:
+                print(f'Testing {model_type} {source_model} model on {target_model}: {10*np.log10(mean_nmse):.1f} dB')
             
             # Store results in matrix
-            results_matrix[model_idx2, model_idx] = mean_nmse
+            results_matrix[source_idx, target_idx] = mean_nmse
             all_test_results.append(test_results)
             
     return all_test_results, results_matrix

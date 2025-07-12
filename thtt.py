@@ -95,7 +95,9 @@ plot_training_results(all_res, models)
 
 #%% Cross-Test Models
 
-all_test_results, results_matrix = cross_test_models(data_matrices, base_config)
+# Test models after initial training
+print("\nCross-testing base models...")
+all_test_results, results_matrix = cross_test_models(data_matrices, base_config, use_finetuned=False)
 
 # Plot test matrix
 plot_test_matrix(results_matrix, models)
@@ -105,14 +107,14 @@ results_matrix_db = 10 * np.log10(results_matrix)
 df = pd.DataFrame(results_matrix_db, index=models, columns=models)
 df = df.round(1)
 
-print("\nTest Results (NMSE in dB):")
+print("\nBase Model Test Results (NMSE in dB):")
 print("==========================")
 print(df.to_string())
 
 #%% Cross-fine-tune
 
 # Calculate sizes for train/test split
-percent = 0.4  # Use 10% for fine-tuning
+percent = 0.2  # Use 40% for fine-tuning
 n_samples = data_matrices[models[0]].shape[0]
 n_train = int(n_samples * percent)
 
@@ -152,44 +154,13 @@ for source_idx, source_model in enumerate(models):
         results = train_models(target_train_data, pair_config)
 
         plot_training_results(results, [source_model], title=title)
-        
+
 #%%
 # Test all fine-tuned models on held-out test data
-print("\nCross-testing all fine-tuned models...")
+print("\nCross-testing fine-tuned models...")
 
 # Test using fine-tuned models
-all_test_results = []
-n_models = len(models)
-results_matrix = np.zeros((n_models, n_models))
-
-for source_idx, source_model in enumerate(models):
-    for target_idx, target_model in enumerate(models):
-        if target_model == source_model:
-            # For same model pairs, use the original model
-            test_config = base_config.clone()
-        else:
-            # For cross-model pairs, use the fine-tuned model
-            test_config = base_config.for_finetuning(
-                source_model=source_model,  # This was fine-tuned from source_model
-                num_epochs=5  # This doesn't matter for testing
-            )
-            
-        # Test the model
-        test_results, _ = cross_test_models(
-            {target_model: test_data[target_model]},  # Only test on target dataset
-            test_config
-        )
-        
-        # Store results
-        mean_nmse = np.mean(test_results[0]['test_nmse_all'])
-        results_matrix[source_idx, target_idx] = mean_nmse
-        all_test_results.extend(test_results)
-        
-        # Print progress with clear indication of which model we're using
-        if target_model == source_model:
-            print(f'Testing original {source_model}: {10*np.log10(mean_nmse):.1f} dB')
-        else:
-            print(f'Testing {source_model}-trained model on {target_model}: {10*np.log10(mean_nmse):.1f} dB')
+all_test_results, results_matrix = cross_test_models(test_data, base_config, use_finetuned=True)
 
 # Plot fine-tuning test results
 plot_test_matrix(results_matrix, models)
