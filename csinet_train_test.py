@@ -10,100 +10,43 @@ This module handles all PyTorch-specific functionality, including:
 - Loss computation and optimization
 """
 
-import os
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
 from collections import OrderedDict
 from tqdm import tqdm
-from scipy.io import savemat
-import sys, datetime
-from CsinetPlus import CsinetPlus
-from data_feed import DataFeed
+import sys
 from einops import rearrange
+from typing import Optional, Dict
+
+# Data Loaders
+from torch.utils.data import DataLoader
+from data_feed import DataFeed
+
+# Models
+from CsinetPlus import CsinetPlus
 from transformerAE import TransformerAE
-from typing import Tuple, Optional, Dict
 
-
-def create_dataloaders(
-    dataset_folder: str = None,
-    train_csv: str = "train_data_idx.csv",
-    val_csv: str = "val_data_idx.csv",
-    test_csv: str = "test_data_idx.csv",
-    train_batch_size: int = 32,
-    test_batch_size: int = 1024,
-    n_train_samples: Optional[int] = None,
-    n_val_samples: Optional[int] = None,
-    n_test_samples: Optional[int] = None,
-    random_state: int = 42,
-    direct_data: Optional[np.ndarray] = None,
-    train_indices: Optional[np.ndarray] = None,
-    val_indices: Optional[np.ndarray] = None,
-    test_indices: Optional[np.ndarray] = None,
-) -> Tuple[DataLoader, DataLoader, DataLoader]:
-    """Create PyTorch DataLoaders for training, validation and testing.
+def create_dataloader(
+    direct_data: np.ndarray,
+    indices: Optional[np.ndarray] = None,
+    batch_size: int = 32,
+    num_samples: Optional[int] = None) -> Optional[DataLoader]:
+    """Create a PyTorch DataLoader for a specific dataset split.
     
     Args:
-        dataset_folder: Base folder containing the dataset (for file-based approach)
-        train_csv: Name of training data CSV file
-        val_csv: Name of validation data CSV file
-        test_csv: Name of testing data CSV file
-        train_batch_size: Batch size for training
-        test_batch_size: Batch size for validation and testing
-        n_train_samples: Number of training samples to use (None = use all)
-        n_val_samples: Number of validation samples to use (None = use all)
-        n_test_samples: Number of test samples to use (None = use all)
-        random_state: Random seed for reproducibility
-        direct_data: Direct data array (for direct data approach)
-        train_indices: Training indices for direct data
-        val_indices: Validation indices for direct data
-        test_indices: Test indices for direct data
+        direct_data: Channel data array
+        indices: Indices for selecting data
+        batch_size: Batch size for the loader
+        num_samples: Number of samples to use (None = use all)
         
     Returns:
-        Tuple of (train_loader, val_loader, test_loader)
+        DataLoader for the specified data split, or None if indices not provided
     """
-    # Create train loader
-    train_loader = DataLoader(
-        DataFeed(
-            data_root=dataset_folder,
-            csv_path=train_csv,
-            direct_data=direct_data[train_indices] if direct_data is not None else None,
-            direct_indices=train_indices,
-            num_data_point=n_train_samples,
-            random_state=random_state
-        ),
-        batch_size=train_batch_size,
-        shuffle=True,
-    )
-    
-    # Create validation loader
-    val_loader = DataLoader(
-        DataFeed(
-            data_root=dataset_folder,
-            csv_path=val_csv,
-            direct_data=direct_data[val_indices] if direct_data is not None else None,
-            direct_indices=val_indices,
-            num_data_point=n_val_samples,
-            random_state=random_state
-        ),
-        batch_size=test_batch_size,
-    )
-    
-    # Create test loader
-    test_loader = DataLoader(
-        DataFeed(
-            data_root=dataset_folder,
-            csv_path=test_csv,
-            direct_data=direct_data[test_indices] if direct_data is not None else None,
-            direct_indices=test_indices,
-            num_data_point=n_test_samples,
-            random_state=random_state
-        ),
-        batch_size=test_batch_size,
-    )
-
-    return train_loader, val_loader, test_loader
+    if indices is None:
+        return None
+        
+    return DataLoader(DataFeed(direct_data, indices, num_data_point=num_samples), batch_size=batch_size)
 
 def cal_nmse(A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
     """Compute the Normalized Mean Squared Error (NMSE) between complex-valued tensors.
@@ -145,8 +88,7 @@ def train_model(
     save_model=False,
     Nc=100, # Number of subcarriers (delay bins)
     Nt=64,  # Number of antennas    (angle bins)
-    n_refine_nets=5, # number of refine layers at the decoder
-):
+    n_refine_nets=5,): # number of refine layers at the decoder
     """Train a CSI-Net model on channel data.
     
     Args:
