@@ -12,7 +12,7 @@ from typing import Dict, List, Tuple, Optional
 import numpy as np
 import scipy.io
 
-from csinet_train_test import test_from_csv, train_model, create_dataloader
+from csinet_train_test import train_model, create_dataloader, test_model
 from model_config import ModelConfig
 
 def convert_channel_angle_delay(channel: np.ndarray) -> np.ndarray:
@@ -105,16 +105,20 @@ def train_models(data_matrices: Dict[str, np.ndarray], config: ModelConfig) -> L
         model_path_save = config.get_model_path(model)
         model_path_load = config.get_model_path(model) if config.is_finetuning else None
 
-        # Train model directly using train_model
-        ret = train_model(train_loader, val_loader, test_loader,
-                          comment=f"model_{model}",
-                          Nc=ch.shape[-1], Nt=ch.shape[2], encoded_dim=config.encoded_dim,
-                          num_epoch=config.num_epochs,
-                          model_path_save=model_path_save,
-                          model_path_load=model_path_load,
-                          save_model=True,
-                          load_model=bool(model_path_load),
-                          lr=config.learning_rate, n_refine_nets=config.n_refine_nets)
+        # Train model with deterministic behavior
+        ret = train_model(
+            train_loader, val_loader, test_loader,
+            comment=f"model_{model}",
+            Nc=ch.shape[-1], Nt=ch.shape[2], encoded_dim=config.encoded_dim,
+            num_epoch=config.num_epochs,
+            model_path_save=model_path_save,
+            model_path_load=model_path_load,
+            save_model=True,
+            load_model=bool(model_path_load),
+            lr=config.learning_rate,
+            n_refine_nets=config.n_refine_nets,
+            seed=config.seed
+        )
         
         all_res.append(ret)
         
@@ -143,16 +147,19 @@ def cross_test_models(data_matrices: Dict[str, np.ndarray],
     results_matrix = np.zeros((n_models, n_models))
     
     for model_idx, model in enumerate(models):  # target dataset
-        print(f'Testing in dataset {model}')
-
-        tgt_dataset_folder = config.get_dataset_folder(model)
-
+        print(f'Testing on dataset {model}')
+        
+        # Convert target data to angle-delay domain
+        ch = convert_channel_angle_delay(data_matrices[model])[:,:,:,:config.n_taps]
+        ch_prepared = np.swapaxes(ch, -1, -2)
+        
         # Create a test set with all data
-        n_samp = data_matrices[model].shape[0]
-        train_val_test_split(n_samp, 
-                           train_val_test_split=[0,0,1], 
-                           seed=config.seed, 
-                           test_csv=os.path.join(tgt_dataset_folder, 'all.csv'))
+        n_samp = ch.shape[0]
+        _, _, test_indices = train_val_test_split(
+            n_samp, 
+            train_val_test_split=[0, 0, 1], 
+            seed=config.seed
+        )
         
         for model_idx2, model2 in enumerate(models):  # source dataset
             if skip_same and model2 == model:
@@ -160,18 +167,22 @@ def cross_test_models(data_matrices: Dict[str, np.ndarray],
                 
             model_path = config.get_model_path(model2)
             
-            # Use appropriate test set
-            csv_name = 'test_data_idx.csv' if model_idx == model_idx2 else 'all.csv'
+            # Create test loader with all data for cross-testing
+            test_loader = create_dataloader(
+                ch_prepared,
+                test_indices,
+                config.test_batch_size
+            )
 
-            # Test model
-            test_results = test_from_csv(
-                csv_folder=tgt_dataset_folder,
-                csv_name=csv_name,
+            # Test model with deterministic behavior
+            test_results = test_model(
+                test_loader=test_loader,
                 model_path=model_path,
                 encoded_dim=config.encoded_dim,
                 Nc=config.n_taps,
                 Nt=config.n_antennas,
-                n_refine_nets=config.n_refine_nets
+                n_refine_nets=config.n_refine_nets,
+                seed=config.seed
             )
 
             mean_nmse = np.mean(test_results['test_nmse_all'])

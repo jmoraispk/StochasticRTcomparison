@@ -27,6 +27,22 @@ from data_feed import DataFeed
 from CsinetPlus import CsinetPlus
 from transformerAE import TransformerAE
 
+
+def set_random_state(seed: int = 42):
+    """Set random state for reproducibility.
+    
+    Args:
+        seed: Random seed to use
+    """
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)  # for multi-GPU
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+
 def create_dataloader(
     direct_data: np.ndarray,
     indices: Optional[np.ndarray] = None,
@@ -88,7 +104,8 @@ def train_model(
     save_model=False,
     Nc=100, # Number of subcarriers (delay bins)
     Nt=64,  # Number of antennas    (angle bins)
-    n_refine_nets=5,): # number of refine layers at the decoder
+    n_refine_nets=5,
+    seed=42): # number of refine layers at the decoder
     """Train a CSI-Net model on channel data.
     
     Args:
@@ -110,6 +127,9 @@ def train_model(
     Returns:
         Dictionary containing training metrics and model path
     """
+    # Set random state for reproducibility
+    set_random_state(seed)
+    
     # check gpu acceleration availability
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # Assuming that we are on a CUDA machine, this should print a CUDA device:
@@ -260,7 +280,8 @@ def test_model(test_loader: DataLoader,
                encoded_dim: int = 32, 
                Nc: int = 100, 
                Nt: int = 64, 
-               n_refine_nets: int = 5) -> Dict:
+               n_refine_nets: int = 5,
+               seed: int = 42) -> Dict:
     """Test a trained CSI-Net model on a test dataset.
     
     This function either:
@@ -287,6 +308,9 @@ def test_model(test_loader: DataLoader,
         - encoded: Encoded representations
         - outputs: Reconstructed channels
     """
+    # Set random state for reproducibility
+    set_random_state(seed)
+    
     # check gpu acceleration availability
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type != 'cuda':
@@ -341,29 +365,3 @@ def test_model(test_loader: DataLoader,
             "encoded": encoded_vects,
             "outputs": outputs,
         }
-    
-
-def test_from_csv(csv_folder, csv_name, model_path=None, encoded_dim=32, Nc=100, Nt=64, n_refine_nets=5):
-    """Test a CSI-Net model using data from CSV files.
-    
-    Args:
-        csv_folder: Folder containing CSV data files
-        csv_name: Name of CSV file to test on
-        model_path: Path to saved model weights
-        encoded_dim: Dimension of encoded representation
-        Nc: Number of subcarriers
-        Nt: Number of antennas
-        
-    Returns:
-        Dictionary containing test results
-    """
-    test_loader = DataLoader(DataFeed(csv_folder, csv_name, num_data_point=100000), 
-                             batch_size=1024)
-    
-    test_results = test_model(test_loader=test_loader,
-                              model_path=model_path,
-                              encoded_dim=encoded_dim,
-                              Nc=Nc,
-                              Nt=Nt,
-                              n_refine_nets=n_refine_nets)
-    return test_results
