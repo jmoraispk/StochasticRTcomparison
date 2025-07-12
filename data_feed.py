@@ -13,6 +13,9 @@ import sklearn
 from torch.utils.data import Dataset, DataLoader
 from scipy.io import loadmat
 
+# If True, data will be passed directly to data loaders without loading from files
+USE_DIRECT_DATA = True
+
 def create_samples(data_root, csv_path, random_state, num_data_point, portion, select_data_idx):
     # load channel data
     channel_ad_clip = loadmat(data_root+'/channel_ad_clip.mat')['all_channel_ad_clip']
@@ -57,8 +60,7 @@ def create_samples(data_root, csv_path, random_state, num_data_point, portion, s
 
 class DataFeed(Dataset):
     def __init__(self, data_root=None, csv_path=None, random_state=0, num_data_point=None, 
-                 portion=1.0, select_data_idx=None, direct_data=None, direct_indices=None,
-                 use_direct_data=False):
+                 portion=1.0, select_data_idx=None, direct_data=None, direct_indices=None):
         """Initialize DataFeed with either file paths or direct data.
         
         Args:
@@ -70,9 +72,8 @@ class DataFeed(Dataset):
             select_data_idx: Specific indices to select
             direct_data: Direct channel data array
             direct_indices: Direct indices array
-            use_direct_data: Whether to use direct data (True) or load from files (False)
         """
-        if use_direct_data and direct_data is not None:
+        if USE_DIRECT_DATA and direct_data is not None:
             self.channel_ad_clip = direct_data  # Already in correct format from train_models
             self.data_idx = direct_indices if direct_indices is not None else np.arange(len(direct_data))
         else:

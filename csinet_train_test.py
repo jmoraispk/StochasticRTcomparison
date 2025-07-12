@@ -25,8 +25,6 @@ from einops import rearrange
 from transformerAE import TransformerAE
 from typing import Tuple, Optional, Dict
 
-# If True, data will be passed directly to data loaders without loading from files
-USE_DIRECT_DATA = False
 
 def create_dataloaders(
     dataset_folder: str = None,
@@ -73,8 +71,7 @@ def create_dataloaders(
             direct_data=direct_data[train_indices] if direct_data is not None else None,
             direct_indices=train_indices,
             num_data_point=n_train_samples,
-            random_state=random_state,
-            use_direct_data=USE_DIRECT_DATA
+            random_state=random_state
         ),
         batch_size=train_batch_size,
         shuffle=True,
@@ -88,8 +85,7 @@ def create_dataloaders(
             direct_data=direct_data[val_indices] if direct_data is not None else None,
             direct_indices=val_indices,
             num_data_point=n_val_samples,
-            random_state=random_state,
-            use_direct_data=USE_DIRECT_DATA
+            random_state=random_state
         ),
         batch_size=test_batch_size,
     )
@@ -102,8 +98,7 @@ def create_dataloaders(
             direct_data=direct_data[test_indices] if direct_data is not None else None,
             direct_indices=test_indices,
             num_data_point=n_test_samples,
-            random_state=random_state,
-            use_direct_data=USE_DIRECT_DATA
+            random_state=random_state
         ),
         batch_size=test_batch_size,
     )
