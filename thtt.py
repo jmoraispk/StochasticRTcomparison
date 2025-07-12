@@ -18,12 +18,12 @@ import numpy as np
 import pandas as pd
 
 # Data paths
-DATA_FOLDER = 'data_new'
-MATRIX_NAME = 'data_matrices_10k_complex_new.pkl'
+DATA_FOLDER = 'data'
+MATRIX_NAME = 'data_matrices_10k_complex.pkl'
 MAT_PATH = os.path.join(DATA_FOLDER, MATRIX_NAME)
 
 # Channel Models
-ch_models = ['CDL-D']#, 'UMa']
+ch_models = ['CDL-D', 'UMa']
 rt_scens = ['asu_campus_3p5']
 models = rt_scens + ch_models
 
@@ -45,7 +45,7 @@ data_cfg = DataConfig(
 # UMAP parameters
 data_cfg.x_points = data_cfg.n_samples #int(2e5)  # Number of points to sample from each dataset (randomly)
 data_cfg.seed = 42  # Set to None to keep random
-data_cfg.rt_uniform_steps = [3, 3]
+data_cfg.rt_uniform_steps = [3, 3] if data_cfg.n_samples <= 10_000 else [1, 1]
 
 # Load data
 data_matrices = load_data_matrices(models, data_cfg)
@@ -78,7 +78,7 @@ base_config = ModelConfig(
     
     # Training parameters
     train_batch_size=16,
-    num_epochs=2,
+    num_epochs=15,
     learning_rate=1e-2,
     
     # Directory structure
@@ -114,7 +114,7 @@ print(df.to_string())
 #%% Cross-fine-tune
 
 # Calculate sizes for train/test split
-percent = 0.2  # Use 40% for fine-tuning
+percent = 0.01  # Use 40% for fine-tuning
 n_samples = data_matrices[models[0]].shape[0]
 n_train = int(n_samples * percent)
 
@@ -155,9 +155,8 @@ for source_idx, source_model in enumerate(models):
 
         plot_training_results(results, [source_model], title=title)
 
-#%%
-# Test all fine-tuned models on held-out test data
-print("\nCross-testing fine-tuned models...")
+#%% Test all fine-tuned models on test data
+print(f"\nCross-testing fine-tuned models on {percent*100}% of data...")
 
 # Test using fine-tuned models
 all_test_results, results_matrix = cross_test_models(test_data, base_config, use_finetuned=True)
@@ -173,3 +172,6 @@ df = df.round(1)
 print("\nFine-tuning Test Results (NMSE in dB):")
 print("=====================================")
 print(df.to_string())
+
+# Future work: add a way to measure the performance DROP in the fine-tuned models
+#              E.g. test the fine-tuned model always on the source model's data
