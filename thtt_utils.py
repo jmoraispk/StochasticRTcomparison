@@ -167,7 +167,17 @@ def cross_test_models(data_matrices: Dict[str, np.ndarray],
             if skip_same and model2 == model:
                 continue
                 
-            model_path = config.get_model_path(model2)
+            # If we're testing a fine-tuned model, set up config to load it
+            if config.is_finetuning:
+                # We want to load the model that was fine-tuned from source_model to model2
+                test_config = config.clone(
+                    is_finetuning=True,
+                    source_model=config.source_model
+                )
+                model_path = test_config.get_model_path(model2)
+            else:
+                # Regular testing - load original model
+                model_path = config.get_model_path(model2)
             
             # Create test loader with all data for cross-testing
             test_loader = create_dataloader(

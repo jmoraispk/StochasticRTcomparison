@@ -170,7 +170,7 @@ for source_idx, source_model in enumerate(models):
         else:
             # For cross-model pairs, use the fine-tuned model
             test_config = base_config.for_finetuning(
-                source_model=source_model,
+                source_model=source_model,  # This was fine-tuned from source_model
                 num_epochs=5  # This doesn't matter for testing
             )
             
@@ -185,8 +185,11 @@ for source_idx, source_model in enumerate(models):
         results_matrix[source_idx, target_idx] = mean_nmse
         all_test_results.extend(test_results)
         
-        # Print progress
-        print(f'Testing {source_model} -> {target_model}: {10*np.log10(mean_nmse):.1f} dB')
+        # Print progress with clear indication of which model we're using
+        if target_model == source_model:
+            print(f'Testing original {source_model}: {10*np.log10(mean_nmse):.1f} dB')
+        else:
+            print(f'Testing {source_model}-trained model on {target_model}: {10*np.log10(mean_nmse):.1f} dB')
 
 # Plot fine-tuning test results
 plot_test_matrix(results_matrix, models)
