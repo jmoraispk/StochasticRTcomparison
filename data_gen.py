@@ -142,7 +142,9 @@ def generate_parametrized_data(rt_model: str, stochastic_model: str, config: Dat
     print(f"After active user filtering: {dataset_a.n_ue} UEs")
     
     # Final sampling to match desired size
-    dataset_t = dataset_a.subset(np.arange(min(10_000, dataset_a.n_ue)))
+    n_final_samples = min(config.n_samples, dataset_a.n_ue)
+    usr_selection = np.random.choice(np.arange(dataset_a.n_ue), size=n_final_samples, replace=False)
+    dataset_t = dataset_a.subset(usr_selection) # this is the final dataset
     print(f"After final sampling: {dataset_t.n_ue} UEs")
     
     # Get LoS & NLoS indices
@@ -205,6 +207,12 @@ def process_rt_dataset(dataset, txrx_pair_idx: int, config: DataConfig) -> np.nd
     # Consider only active users for redundancy reduction
     dataset_t = dataset_u.subset(dataset_u.get_active_idxs())
     print(f"After active user filtering: {dataset_t.n_ue} UEs")
+
+    # Final sampling to match desired size
+    n_final_samples = min(config.n_samples, dataset_t.n_ue)
+    usr_selection = np.random.choice(np.arange(dataset_t.n_ue), size=n_final_samples, replace=False)
+    dataset_t = dataset_t.subset(usr_selection)
+    print(f"After final sampling: {dataset_t.n_ue} UEs")
 
     return dataset_t.compute_channels(ch_params)
 
@@ -285,6 +293,10 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
             mat_list = [process_rt_dataset(dataset, idx, config) for idx in tx_rx_pair_idxs]
             mat = np.concatenate(mat_list, axis=0)
 
+            # Trim number of samples to match config.n_samples
+            n_final_samples = min(config.n_samples, mat.shape[0])
+            idxs = np.random.choice(np.arange(mat.shape[0]), size=n_final_samples, replace=False)
+            mat = mat[idxs]
         else:
             raise Exception(f'Model {model} not recognized.')
 

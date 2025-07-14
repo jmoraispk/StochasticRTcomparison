@@ -19,7 +19,7 @@ import pandas as pd
 
 # Data paths
 DATA_FOLDER = 'data'
-MATRIX_NAME = 'data_matrices_10k_complex.pkl'
+MATRIX_NAME = 'data_matrices_50k_complex_all.pkl'
 MAT_PATH = os.path.join(DATA_FOLDER, MATRIX_NAME)
 
 # Channel Models
