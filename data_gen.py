@@ -172,6 +172,42 @@ def generate_parametrized_data(rt_model: str, stochastic_model: str, config: Dat
     
     return mat
 
+def process_rt_dataset(dataset, txrx_pair_idx: int, config: DataConfig) -> np.ndarray:
+    """Process a ray tracing dataset for a specific tx-rx pair.
+    
+    Args:
+        dataset: DeepMIMO dataset to process
+        txrx_pair_idx: Index of tx-rx pair to process
+        config: Configuration parameters
+        
+    Returns:
+        Generated channel matrix for the specified tx-rx pair
+    """
+    # Get indices for current tx-rx pair if multiple pairs exist
+    curr_dataset = dataset[txrx_pair_idx] if len(dataset.tx_pos) > 1 else dataset
+    
+    # Configure uniform sampling steps
+    steps = config.rt_uniform_steps if config.rt_uniform_steps else [1, 1]
+    print(f"Using uniform sampling steps {steps} for {curr_dataset.n_ue} UEs")
+    
+    # Set up channel parameters
+    ch_params = dm.ChannelParameters()
+    ch_params.ofdm.bandwidth = 15e3 * config.n_prbs * SUBCARRIERS_PER_PRB
+    ch_params.ofdm.num_subcarriers = config.n_prbs * SUBCARRIERS_PER_PRB
+    ch_params.ofdm.selected_subcarriers = config.freq_selection
+    ch_params.bs_antenna.shape = np.array([config.n_tx, 1])
+    ch_params.ue_antenna.shape = np.array([config.n_rx, 1])
+
+    # Reduce dataset size with uniform sampling
+    dataset_u = curr_dataset.subset(curr_dataset.get_uniform_idxs(steps))
+    print(f"After uniform sampling: {dataset_u.n_ue} UEs")
+
+    # Consider only active users for redundancy reduction
+    dataset_t = dataset_u.subset(dataset_u.get_active_idxs())
+    print(f"After active user filtering: {dataset_t.n_ue} UEs")
+
+    return dataset_t.compute_channels(ch_params)
+
 def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.ndarray]:
     """Load data matrices for specified models.
     
@@ -220,40 +256,35 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
         elif model_name in RT_MODELS:
             print(f"Loading ray tracing data for {model}...")
             
-            # The tx-ID may be hinted by adding '!1' or '!2', to model name
-            possible_tx_id = model.split('!')[-1]            
-            tx_id = int(possible_tx_id) if possible_tx_id.isdigit() else 1
+            dataset = dm.load(model_name, matrices=config.relevant_mats)
 
-            load_params = dict(tx_sets=[tx_id], rx_sets=[0], matrices=config.relevant_mats)
-            dataset = dm.load(model_name, **load_params)
+            # Get number of unique tx-rx pairs
+            n_txrx_pairs = len(dataset.tx_pos)
+            print(f"Found {n_txrx_pairs} tx-rx pairs in dataset")
+
+            # Parse tx-rx pair selection from model string
+            if len(model_parts) > 1:
+                tx_rx_pair_idx = model_parts[-1]
+            else:
+                tx_rx_pair_idx = 'all'
+
+            # Determine which tx-rx pairs to process
+            if tx_rx_pair_idx == 'all':
+                tx_rx_pair_idxs = range(n_txrx_pairs)
+                print("Processing all tx-rx pairs")
+            else:
+                # Validate requested pair index
+                requested_idx = int(tx_rx_pair_idx)
+                if requested_idx < 0 or requested_idx >= n_txrx_pairs:
+                    raise ValueError(f"Invalid tx-rx pair index {requested_idx}. "
+                                  f"Must be between 0 and {n_txrx_pairs-1}")
+                tx_rx_pair_idxs = [requested_idx]
+                print(f"Processing tx-rx pair {requested_idx}")
             
-            # Adjust uniform steps based on dataset size
-            steps = config.rt_uniform_steps
-            if steps is None:  # Only use dataset size logic if steps not configured
-                if dataset.n_ue > 100_000:
-                    steps = [3, 3]
-                elif dataset.n_ue > 10_000:
-                    steps = [2, 2]
-                else:
-                    steps = [1, 1]
-            print(f"Using uniform sampling steps {steps} for {dataset.n_ue} UEs")
-            
-            ch_params = dm.ChannelParameters()
-            ch_params.ofdm.bandwidth = 15e3 * config.n_prbs * SUBCARRIERS_PER_PRB
-            ch_params.ofdm.num_subcarriers = config.n_prbs * SUBCARRIERS_PER_PRB
-            ch_params.ofdm.selected_subcarriers = config.freq_selection
-            ch_params.bs_antenna.shape = np.array([config.n_tx, 1])
-            ch_params.ue_antenna.shape = np.array([config.n_rx, 1])
+            # Process selected tx-rx pairs
+            mat_list = [process_rt_dataset(dataset, idx, config) for idx in tx_rx_pair_idxs]
+            mat = np.concatenate(mat_list, axis=0)
 
-            # Reduce dataset size with uniform sampling
-            dataset_u = dataset.subset(dataset.get_uniform_idxs(steps))
-            print(f"After uniform sampling: {dataset_u.n_ue} UEs")
-
-            # Consider only active users for redundancy reduction
-            dataset_t = dataset_u.subset(dataset_u.get_active_idxs())
-            print(f"After active user filtering: {dataset_t.n_ue} UEs")
-
-            mat = dataset_t.compute_channels(ch_params)
         else:
             raise Exception(f'Model {model} not recognized.')
 
@@ -298,8 +329,8 @@ def normalize_data(data: np.ndarray, mode: str = 'datapoint') -> np.ndarray:
         norms_norm = (ch_norms[non_zero_ues] - min_norm) / (max_norm - min_norm)
         mat_norm = H_unit * norms_norm
     elif 'dataset-mean' in mode:
-        print(f'mean of not normalized data: {np.mean(np.abs(data)):.2e}')
-        print(f'var of not normalized data: {np.var(np.abs(data)):.2e}')
+        # print(f'mean of not normalized data: {np.mean(np.abs(data)):.2e}')
+        # print(f'var of not normalized data: {np.var(np.abs(data)):.2e}')
         
         if 'complex' in mode:
             mean = np.mean(data)
@@ -317,16 +348,16 @@ def normalize_data(data: np.ndarray, mode: str = 'datapoint') -> np.ndarray:
         if 'complex' in mode:
             mat_norm = data - mean
 
-        print(f'mean of mean-normalized data: {np.mean(np.abs(mat_norm)):.2e}')
-        print(f'var of mean-normalized data: {np.var(np.abs(mat_norm)):.2e}')
+        # print(f'mean of mean-normalized data: {np.mean(np.abs(mat_norm)):.2e}')
+        # print(f'var of mean-normalized data: {np.var(np.abs(mat_norm)):.2e}')
         if 'var' in mode:
             if mode == 'dataset-mean-var': # additionally, scale variance to 1
                 mat_norm /= np.std(np.abs(mat_norm))
             elif mode == 'dataset-mean-var-complex':
                 mat_norm = mat_norm / np.std(mat_norm)
 
-            print(f'mean of fully-normalized data: {np.mean(np.abs(mat_norm)):.2e}')
-            print(f'var of fully-normalized data: {np.var(np.abs(mat_norm)):.2e}')
+            # print(f'mean of fully-normalized data: {np.mean(np.abs(mat_norm)):.2e}')
+            # print(f'var of fully-normalized data: {np.var(np.abs(mat_norm)):.2e}')
     else:
         raise ValueError(f"Invalid normalization mode: {mode}")
     
