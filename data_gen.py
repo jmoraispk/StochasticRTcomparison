@@ -129,13 +129,8 @@ def generate_parametrized_data(rt_model: str, stochastic_model: str, config: Dat
     
     # Adjust uniform steps based on dataset size
     steps = config.rt_uniform_steps
-    if steps is None:  # Only use dataset size logic if steps not configured
-        if dataset.n_ue > 100_000:
-            steps = [3, 3]
-        elif dataset.n_ue > 10_000:
-            steps = [2, 2]
-        else:
-            steps = [1, 1]
+    if steps is None:
+        steps = [1, 1]
     print(f"Using uniform sampling steps {steps} for {dataset.n_ue} UEs")
     
     # Reduce dataset size with uniform sampling
