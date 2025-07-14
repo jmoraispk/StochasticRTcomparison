@@ -85,7 +85,7 @@ base_config = ModelConfig(
     dataset_main_folder='channel_experiment'
 )
 
-#%% Train Models
+#%% [PYTORCH ENV] Train Models
 
 # Train models using base config
 all_res = train_models(data_matrices, base_config)
@@ -93,7 +93,7 @@ all_res = train_models(data_matrices, base_config)
 # Plot training results
 plot_training_results(all_res, models)
 
-#%% Cross-Test Models
+#%% [PYTORCH ENV] Cross-Test Models
 
 # Test models after initial training
 print("\nCross-testing base models...")
@@ -111,7 +111,7 @@ print("\nBase Model Test Results (NMSE in dB):")
 print("==========================")
 print(df.to_string())
 
-#%% Cross-fine-tune
+#%% [PYTORCH ENV] Cross-fine-tune
 
 # Calculate sizes for train/test split
 percent = 0.01  # Use 40% for fine-tuning
@@ -155,17 +155,18 @@ for source_idx, source_model in enumerate(models):
 
         plot_training_results(results, [source_model], title=title)
 
-#%% Test all fine-tuned models on test data
+#%% [PYTORCH ENV] Test all fine-tuned models on test data
 print(f"\nCross-testing fine-tuned models on {percent*100}% of data...")
 
 # Test using fine-tuned models
-all_test_results, results_matrix = cross_test_models(test_data, base_config, use_finetuned=True)
+finetuned_test_results, finetuned_results_matrix = \
+    cross_test_models(test_data, base_config, use_finetuned=True)
 
 # Plot fine-tuning test results
-plot_test_matrix(results_matrix, models)
+plot_test_matrix(finetuned_results_matrix, models)
 
 # Print detailed results
-results_matrix_db = 10 * np.log10(results_matrix)
+results_matrix_db = 10 * np.log10(finetuned_results_matrix)
 df = pd.DataFrame(results_matrix_db, index=models, columns=models)
 df = df.round(1)
 
@@ -175,3 +176,22 @@ print(df.to_string())
 
 # Future work: add a way to measure the performance DROP in the fine-tuned models
 #              E.g. test the fine-tuned model always on the source model's data
+
+#%% [PYTORCH ENV] Plot GAIN from fine-tuning
+
+gain_matrix = finetuned_results_matrix / results_matrix
+
+# Plot fine-tuning test results
+plot_test_matrix(gain_matrix, models)
+
+# Print detailed results
+gain_matrix_db = 10 * np.log10(gain_matrix)
+df = pd.DataFrame(gain_matrix_db, index=models, columns=models)
+df = df.round(1)
+
+print("\nFine-tuning Test Results (NMSE Gain in dB):")
+print("===========================================")
+print(df.to_string())
+
+
+#%%

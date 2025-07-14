@@ -45,7 +45,7 @@ def create_samples(direct_data: np.ndarray,
     # Apply normalization
     channel_ad_clip /= np.linalg.norm(channel_ad_clip, ord='fro', axis=(-1,-2), keepdims=True)
     channel_ad_clip = channel_ad_clip / np.expand_dims(channel_ad_clip[:, 0, 0] / 
-                                                      np.abs(channel_ad_clip[:, 0, 0]), (1,2))
+                                                       np.abs(channel_ad_clip[:, 0, 0]), (1,2))
 
     return channel_ad_clip, data_idx
 
