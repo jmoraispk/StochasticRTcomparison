@@ -6,12 +6,10 @@ utilities for plotting embeddings and analyzing model relationships.
 """
 
 #%%
-import sys
-sys.path.insert(0, '/mnt/c/Users/jmora/Documents/GitHub/StochasticRTcomparison/')
 
 import time
 import numpy as np
-from cuml import UMAP  # type: ignore
+# from cuml import UMAP  # type: ignore
 import matplotlib.pyplot as plt
 
 from data_gen import DataConfig, load_data_matrices, prepare_umap_data, remove_outliers
@@ -21,7 +19,7 @@ from topology_utils import (plot_umap_embeddings, plot_umap_3d_histogram,
 #%% Parameters
 # Channel generation parameters
 cfg = DataConfig(
-    n_samples = 10_000,
+    n_samples = 1_000,
     n_prbs = 20,
     n_rx = 1,
     n_tx = 32,
@@ -40,7 +38,7 @@ cfg = DataConfig(
 cfg.x_points = cfg.n_samples #int(2e5)  # Number of points to sample from each dataset (randomly)
 cfg.plot_points = cfg.n_samples # No. points to plot from each dataset (randomly). None = all points.
 cfg.seed = 42  # Set to None to keep random
-cfg.rt_uniform_steps = [2, 2]
+cfg.rt_uniform_steps = [3, 3]
 
 # Channel models  : ['Rayleigh', 'CDL-x', 'TDL-x', 'UMa', 'UMi'] 
 # TR 38.901, x is : ["A", "B", "C", "D", "E"] 
@@ -272,140 +270,10 @@ plot_umap_heatmap(single_model_embeddings_e, single_model, (xmin, xmax), (ymin, 
 
 #%% [Part 1] Sampling method using RT as baseline for UMa/UMi parameterization
 
-# TODO: put this inside data_gen.py as a load_based_on_rt_model
+models = ['asu_campus_3p5','UMa!param!asu_campus_3p5']
 
-# - when moving this into data_gen.py, isolate the RT-based data gen so it can be
-#   used for other functions as well. 
-# - load_based_on_rt_model should take a single RT model and a single stochastic model (UMa or UMi)
-#   and return a dictionary of a matrix for the stochastic model (or both?)
-
-
-import deepmimo as dm
-from sionna_ch_gen import SionnaChannelGenerator, TopologyConfig
-from data_gen import normalize_data, sample_ch
-import tensorflow as tf
-
-rt_model = 'asu_campus_3p5'
-stochastic_model = 'UMa'
-config = cfg
-steps = cfg.rt_uniform_steps
-SUBCARRIERS_PER_PRB = 12
-data_matrices = {}
-
-# 1- Load RT data
-print(f"Loading ray tracing data for {rt_model}...")
-            
-# The tx-ID may be hinted by adding '!1' or '!2', to model name
-possible_tx_id = rt_model.split('!')[-1]            
-tx_id = int(possible_tx_id) if possible_tx_id.isdigit() else 1
-
-load_params = dict(tx_sets=[tx_id], rx_sets=[0], matrices=config.relevant_mats)
-dataset = dm.load(rt_model, **load_params)
-
-# Adjust uniform steps based on dataset size
-print(f"Using uniform sampling steps {steps} for {dataset.n_ue} UEs")
-
-ch_params = dm.ChannelParameters()
-ch_params.ofdm.bandwidth = 15e3 * config.n_prbs * SUBCARRIERS_PER_PRB
-ch_params.ofdm.num_subcarriers = config.n_prbs * SUBCARRIERS_PER_PRB
-ch_params.ofdm.selected_subcarriers = config.freq_selection
-ch_params.bs_antenna.shape = np.array([config.n_tx, 1])
-ch_params.ue_antenna.shape = np.array([config.n_rx, 1])
-ch_params.bs_antenna.rotation = np.array([0, 0, -135])
-
-# Reduce dataset size with uniform sampling
-dataset_u = dataset.subset(dataset.get_uniform_idxs(steps))
-print(f"After uniform sampling: {dataset_u.n_ue} UEs")
-
-# Consider only active users for redundancy reduction
-dataset_a = dataset_u.subset(dataset_u.get_active_idxs())
-print(f"After active user filtering: {dataset_a.n_ue} UEs")
-
-dataset_t = dataset_a.subset(np.arange(10_000))
-print(f"After final sampling: {dataset_t.n_ue} UEs")
-
-mat_rt = dataset_t.compute_channels(ch_params)
-
-#%% [Part 2] Generate UMa/UMi data
-
-def process_batch(dm_dataset, batch_idxs, los_status, config, stochastic_model):
-    """Process a single batch of users with specified LoS status.
-    
-    Args:
-        dm_dataset: DeepMIMO dataset containing user positions and orientations
-        batch_idxs: Indices of users to process in this batch
-        los_status: 1 for LoS, 0 for NLoS
-        config: Configuration object
-        stochastic_model: Name of the stochastic model to use
-        
-    Returns:
-        Channel data for the batch
-    """
-    # Base station position and orientation
-    bs_pos = dm_dataset.tx_pos.reshape((1, 1, 3))
-    bs_ori = dm_dataset.tx_ori.reshape((1, 1, 3)) * np.pi / 180  # to radians
-    
-    # Process users
-    rx_pos = dm_dataset.rx_pos[batch_idxs].reshape((1, -1, 3))
-    rx_ori = np.zeros((1, len(batch_idxs), 3))
-    
-    topology = TopologyConfig(
-        ut_loc=tf.cast(rx_pos, tf.float32),
-        bs_loc=tf.cast(bs_pos, tf.float32),
-        ut_orientations=tf.cast(rx_ori, tf.float32),
-        bs_orientations=tf.cast(bs_ori, tf.float32),
-        ut_velocities=tf.cast(rx_ori, tf.float32),
-        in_state=tf.cast(np.zeros((1, len(batch_idxs)), dtype=bool), tf.bool),
-        los=bool(los_status))
-    
-    # Create channel generator
-    ch_gen_params = dict(num_prbs=config.n_prbs, channel_name=stochastic_model, 
-                        batch_size=1, n_rx=config.n_rx, n_tx=config.n_tx,
-                        normalize=False, seed=config.seed, n_ue=len(batch_idxs))
-    
-    ch_gen = SionnaChannelGenerator(**ch_gen_params, topology=topology)
-    
-    # Sample data
-    ch_data = sample_ch(ch_gen, config.n_prbs, 1, len(batch_idxs), 
-                        config.snr, config.n_rx, config.n_tx)
-    
-    return ch_data
-
-# 2.1- Get LoS & NLoS indices
-los_idxs = np.where(dataset_t.los == 1)[0]
-nlos_idxs = np.where(dataset_t.los == 0)[0]
-
-# 2.2- Process users in batches
-batch_size = 200
-ch_data_list = []
-
-# Process all LoS users first, then all NLoS users
-for los_status, idxs in [(1, los_idxs), (0, nlos_idxs)]:
-    # Create batches of indices
-    batches = [idxs[i:i + batch_size] for i in range(0, len(idxs), batch_size)]
-    status_str = "LoS" if los_status == 1 else "NLoS"
-    
-    # Process each batch
-    for i, batch in enumerate(batches):
-        print(f"Processing {status_str} batch {i + 1}/{len(batches)}...")
-        ch_data = process_batch(dataset_t, batch, los_status, config, stochastic_model)
-        ch_data_list.append(ch_data)
-
-# 2.3- Concatenate results
-ch_data = np.concatenate(ch_data_list, axis=0)
-
-# 2.4- Process final matrices
-mat_stochastic = ch_data[:, :, :, config.freq_selection].astype(np.complex64)
-print(f"Generated {mat_stochastic.shape[0]} samples for {stochastic_model}")
-
-#%% [Part 3] Normalize data and prepare for UMAP
-
-# 2.5- Normalize data
-data_matrices[rt_model] = normalize_data(mat_rt, mode=cfg.normalize)
-data_matrices[stochastic_model] = normalize_data(mat_stochastic, mode=cfg.normalize)
-
+data_matrices = load_data_matrices(models, cfg)
 data_real, labels = prepare_umap_data(data_matrices, models, cfg.x_points, cfg.seed)
-
 
 #%% Load data matrices with different path trims
 
@@ -425,7 +293,7 @@ dataset_t_los_r.power.plot(title='LoS + R')
 dataset_t_los_r_d.power.plot(title='LoS + R + D')
 dataset_t_los_r_s.power.plot(title='LoS + R + S')
 
-
+# FUTURE: Check scripts/path_type_depth_study.py in DeepMIMO repo
 
 
 

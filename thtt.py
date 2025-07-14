@@ -23,8 +23,8 @@ MATRIX_NAME = 'data_matrices_10k_complex.pkl'
 MAT_PATH = os.path.join(DATA_FOLDER, MATRIX_NAME)
 
 # Channel Models
-ch_models = ['CDL-D', 'UMa']
-rt_scens = ['asu_campus_3p5']
+ch_models = ['TDL-C', 'CDL-C', 'CDL-D', 'UMa', 'UMa!param!asu_campus_3p5']
+rt_scens = ['asu_campus_3p5', 'city_0_newyork_3p5', 'city_1_losangeles_3p5']
 models = rt_scens + ch_models
 
 #%% [SIONNA ENV] Load and Prepare Data
@@ -34,7 +34,7 @@ from model_config import ModelConfig
 
 # Configure data generation
 data_cfg = DataConfig(
-    n_samples = 10_000,
+    n_samples = 50_000,
     n_prbs = 20,
     n_rx = 1,
     n_tx = 32,

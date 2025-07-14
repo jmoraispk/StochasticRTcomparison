@@ -11,7 +11,8 @@ from typing import Dict, List, Tuple, Optional
 import deepmimo as dm  # type: ignore
 import numpy as np
 from tqdm import tqdm
-from sionna_ch_gen import SionnaChannelGenerator
+from sionna_ch_gen import SionnaChannelGenerator, TopologyConfig
+import tensorflow as tf
 
 # Constants
 SUBCARRIERS_PER_PRB = 12  # Hz
@@ -65,11 +66,126 @@ class DataConfig:
         if self.rt_uniform_steps is None:
             self.rt_uniform_steps = [3, 3]  # Default for large datasets
 
+def process_batch_param(dm_dataset, batch_idxs: np.ndarray, los_status: int, 
+                       config: DataConfig, stochastic_model: str) -> np.ndarray:
+    """Process a single batch of users with specified LoS status for parametrized models.
+    
+    Args:
+        dm_dataset: DeepMIMO dataset containing user positions and orientations
+        batch_idxs: Indices of users to process in this batch
+        los_status: 1 for LoS, 0 for NLoS
+        config: Configuration object
+        stochastic_model: Name of the stochastic model to use
+        
+    Returns:
+        Channel data for the batch
+    """
+    # Base station position and orientation
+    bs_pos = dm_dataset.tx_pos.reshape((1, 1, 3))
+    bs_ori = dm_dataset.tx_ori.reshape((1, 1, 3)) * np.pi / 180  # to radians
+    
+    # Process users
+    rx_pos = dm_dataset.rx_pos[batch_idxs].reshape((1, -1, 3))
+    rx_ori = np.zeros((1, len(batch_idxs), 3))
+    
+    topology = TopologyConfig(
+        ut_loc=tf.cast(rx_pos, tf.float32),
+        bs_loc=tf.cast(bs_pos, tf.float32),
+        ut_orientations=tf.cast(rx_ori, tf.float32),
+        bs_orientations=tf.cast(bs_ori, tf.float32),
+        ut_velocities=tf.cast(rx_ori, tf.float32),
+        in_state=tf.cast(np.zeros((1, len(batch_idxs)), dtype=bool), tf.bool),
+        los=bool(los_status))
+    
+    # Create channel generator
+    ch_gen_params = dict(num_prbs=config.n_prbs, channel_name=stochastic_model, 
+                        batch_size=1, n_rx=config.n_rx, n_tx=config.n_tx,
+                        normalize=False, seed=config.seed, n_ue=len(batch_idxs))
+    
+    ch_gen = SionnaChannelGenerator(**ch_gen_params, topology=topology)
+    
+    # Sample data
+    ch_data = sample_ch(ch_gen, config.n_prbs, 1, len(batch_idxs), 
+                        config.snr, config.n_rx, config.n_tx)
+    
+    return ch_data
+
+def generate_parametrized_data(rt_model: str, stochastic_model: str, config: DataConfig) -> np.ndarray:
+    """Generate parametrized stochastic model data based on ray tracing data.
+    
+    Args:
+        rt_model: Name of the ray tracing model to use as reference
+        stochastic_model: Name of the stochastic model to parametrize
+        config: Configuration object
+        
+    Returns:
+        Generated channel data matrix
+    """
+    print(f"Loading ray tracing data for {rt_model}...")
+    
+    # Load RT data
+    load_params = dict(tx_sets=[1], rx_sets=[0], matrices=config.relevant_mats)
+    dataset = dm.load(rt_model, **load_params)
+    
+    # Adjust uniform steps based on dataset size
+    steps = config.rt_uniform_steps
+    if steps is None:  # Only use dataset size logic if steps not configured
+        if dataset.n_ue > 100_000:
+            steps = [3, 3]
+        elif dataset.n_ue > 10_000:
+            steps = [2, 2]
+        else:
+            steps = [1, 1]
+    print(f"Using uniform sampling steps {steps} for {dataset.n_ue} UEs")
+    
+    # Reduce dataset size with uniform sampling
+    dataset_u = dataset.subset(dataset.get_uniform_idxs(steps))
+    print(f"After uniform sampling: {dataset_u.n_ue} UEs")
+    
+    # Consider only active users for redundancy reduction
+    dataset_a = dataset_u.subset(dataset_u.get_active_idxs())
+    print(f"After active user filtering: {dataset_a.n_ue} UEs")
+    
+    # Final sampling to match desired size
+    dataset_t = dataset_a.subset(np.arange(min(10_000, dataset_a.n_ue)))
+    print(f"After final sampling: {dataset_t.n_ue} UEs")
+    
+    # Get LoS & NLoS indices
+    los_idxs = np.where(dataset_t.los == 1)[0]
+    nlos_idxs = np.where(dataset_t.los == 0)[0]
+    
+    # Process users in batches
+    batch_size = 200
+    ch_data_list = []
+    
+    # Process all LoS users first, then all NLoS users
+    for los_status, idxs in [(1, los_idxs), (0, nlos_idxs)]:
+        # Create batches of indices
+        batches = [idxs[i:i + batch_size] for i in range(0, len(idxs), batch_size)]
+        status_str = "LoS" if los_status == 1 else "NLoS"
+        
+        # Process each batch
+        for i, batch in enumerate(batches):
+            print(f"Processing {status_str} batch {i + 1}/{len(batches)}...")
+            ch_data = process_batch_param(dataset_t, batch, los_status, config, stochastic_model)
+            ch_data_list.append(ch_data)
+    
+    # Concatenate results and process final matrix
+    ch_data = np.concatenate(ch_data_list, axis=0)
+    mat = ch_data[:, :, :, config.freq_selection].astype(np.complex64)
+    print(f"Generated {mat.shape[0]} samples for parametrized {stochastic_model}")
+    
+    return mat
+
 def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.ndarray]:
     """Load data matrices for specified models.
     
     Args:
-        models: List of model names to load
+        models: List of model names to load. Model names can be specified as:
+               • For parametrized models: 'model!param!rt_model'
+                 - Example: 'UMa!param!asu_campus_3p5'
+               • For ray tracing models: 'model!N' where N is transmitter ID
+                 - Example: 'asu_campus_3p5!1'
         config: DataConfig instance with generation parameters
         
     Returns:
@@ -78,20 +194,32 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
     data_matrices = {}
 
     for model in models:
-        model_name = model.split('!')[0]
+        model_parts = model.split('!')
+        model_name = model_parts[0]
         print(f"\nProcessing {model}...")
         
-        if model_name in STOCHASTIC_MODELS:
+        # Handle stochastic parametrized models (just UMa and UMi for now)
+        if len(model_parts) > 1 and model_parts[1] == 'param':
+            rt_model = model_parts[2]
+            if rt_model not in RT_MODELS:
+                raise ValueError(f"Invalid RT model {rt_model} for parametrization")
+            if model_name not in ['UMa', 'UMi']:
+                raise ValueError(f"Only UMa/UMi models can be parametrized, got {model_name}")
+            
+            print(f"Generating parametrized {model_name} data using {rt_model}...")
+            mat = generate_parametrized_data(rt_model, model_name, config)
+            
+        elif model_name in STOCHASTIC_MODELS:
             print(f"Generating stochastic data for {model}...")
             ch_gen = SionnaChannelGenerator(num_prbs=config.n_prbs,
-                                            channel_name=model,
-                                            batch_size=config.batch_size,
-                                            n_rx=config.n_rx,
-                                            n_tx=config.n_tx,
-                                            normalize=False, #config.normalize, #3
-                                            seed=config.seed)
+                                          channel_name=model,
+                                          batch_size=config.batch_size,
+                                          n_rx=config.n_rx,
+                                          n_tx=config.n_tx,
+                                          normalize=False,
+                                          seed=config.seed)
             ch_data = sample_ch(ch_gen, config.n_prbs, config.n_samples // config.batch_size, 
-                                config.batch_size, config.snr, config.n_rx, config.n_tx)
+                              config.batch_size, config.snr, config.n_rx, config.n_tx)
             mat = ch_data[:, :, :, config.freq_selection].astype(np.complex64)
             
         elif model_name in RT_MODELS:
