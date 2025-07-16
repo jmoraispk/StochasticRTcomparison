@@ -27,6 +27,9 @@ ch_models = ['TDL-C', 'CDL-C', 'CDL-D', 'UMa', 'UMa!param!asu_campus_3p5']
 rt_scens = ['asu_campus_3p5', 'city_0_newyork_3p5', 'city_1_losangeles_3p5']
 models = rt_scens + ch_models
 
+NT = 32
+NC = 16
+
 #%% [SIONNA ENV] Load and Prepare Data
 
 from data_gen import DataConfig, load_data_matrices
@@ -37,7 +40,7 @@ data_cfg = DataConfig(
     n_samples = 50_000,
     n_prbs = 20,
     n_rx = 1,
-    n_tx = 32,
+    n_tx = NT,
     snr = 50,
     normalize = 'dataset-mean-var-complex',
 )
@@ -73,8 +76,8 @@ base_config = ModelConfig(
     # Model architecture
     encoded_dim=64,   # 32x reduction (NC=16 * n_ant=64 * 2 IQ / 64 = 32x)
     n_refine_nets=6,  # != 1 for CSInetPlus | -1 for TransformerAE
-    n_taps=16,
-    n_antennas=32,  # TODO: change to 64
+    n_taps=NC,
+    n_antennas=NT,
     
     # Training parameters
     train_batch_size=16,
@@ -82,7 +85,7 @@ base_config = ModelConfig(
     learning_rate=1e-2,
     
     # Directory structure
-    dataset_main_folder='channel_experiment'
+    dataset_main_folder='channel_experiment_all'
 )
 
 #%% [PYTORCH ENV] Train Models
@@ -114,9 +117,10 @@ print(df.to_string())
 #%% [PYTORCH ENV] Cross-fine-tune
 
 # Calculate sizes for train/test split
-percent = 0.01  # Use 40% for fine-tuning
-n_samples = data_matrices[models[0]].shape[0]
-n_train = int(n_samples * percent)
+percent = 0.9  # Use 40% for fine-tuning
+samp_per_model = [data_matrices[model].shape[0] for model in models]
+n_samples = min(samp_per_model) # only generate indices up to this number
+n_train = int(np.median(samp_per_model) * percent)
 
 # Create train/test splits for each model
 train_data = {}
@@ -133,6 +137,8 @@ for model in data_matrices.keys():
     train_data[model] = data_matrices[model][train_indices]
     test_data[model] = data_matrices[model][test_indices]
 
+res_list = []
+fine_tune_models = []
 # Fine-tune each source->target pair
 for source_idx, source_model in enumerate(models):
     for target_idx, target_model in enumerate(models):
@@ -142,10 +148,14 @@ for source_idx, source_model in enumerate(models):
         title = f'Fine-tuning {source_model} -> {target_model}'
         print(f"\n{title}")
         
+        if os.path.exists(f'./channel_experiment_all_finetuned/model_{source_model}_{target_model}.pth'):
+            print(f"Model {source_model} -> {target_model} already exists")
+            continue
+        
         # Create config for this specific fine-tuning pair
         pair_config = base_config.for_finetuning(
             source_model=source_model,
-            num_epochs=5,
+            num_epochs=15,
             n_train_samples=n_train
         )
         
@@ -154,6 +164,11 @@ for source_idx, source_model in enumerate(models):
         results = train_models(target_train_data, pair_config)
 
         plot_training_results(results, [source_model], title=title)
+
+        res_list.append(results)
+        fine_tune_models.append(title)
+
+# plot_training_results(res_list, fine_tune_models)
 
 #%% [PYTORCH ENV] Test all fine-tuned models on test data
 print(f"\nCross-testing fine-tuned models on {percent*100}% of data...")
