@@ -84,7 +84,7 @@ class ModelConfig:
             else:
                 # When saving fine-tuned model, use fine-tuned folder
                 folder = self.dataset_main_folder + '_finetuned'
-                return os.path.join(folder, f"model_{model}_{self.source_model}.pth")
+                return os.path.join(folder, f"model_{self.source_model}_{model}.pth")
         else:
             # Normal training uses base folder
             folder = self.dataset_main_folder
