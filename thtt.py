@@ -33,7 +33,6 @@ NC = 16
 #%% [SIONNA ENV] Load and Prepare Data
 
 from data_gen import DataConfig, load_data_matrices
-from model_config import ModelConfig
 
 # Configure data generation
 data_cfg = DataConfig(
