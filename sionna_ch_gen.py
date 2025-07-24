@@ -34,7 +34,8 @@ class SionnaChannelGenerator(tf.keras.Model):
     """Generator class for Sionna channels."""
     def __init__(self, num_prbs: int, channel_name: str = 'UMa', batch_size: int = 1, 
                  n_rx: int = 1, n_tx: int = 1, normalize: bool = True, n_ue: int = 1,
-                 seed: Optional[int] = None, topology: Optional[TopologyConfig] = None):
+                 seed: Optional[int] = None, topology: Optional[TopologyConfig] = None,
+                 ue_speed: float = 1):
         """
         Initializor for a Sionna Channel Generator.
 
@@ -58,7 +59,7 @@ class SionnaChannelGenerator(tf.keras.Model):
         self.fc = 3.5e9                  # Frequency [Hz]
         self.link_direction = 'downlink' # Link direction (direction of the signal)
         self.delay_spread = 100e-9       # Nominal delay spread [s]
-        self.ue_speed = 1                # User speed [m/s]
+        self.ue_speed = ue_speed        # User speed [m/s]
         self.n_ue = n_ue
 
         self.ue_array = sionna.channel.tr38901.PanelArray(
@@ -163,7 +164,8 @@ class SionnaChannelGenerator(tf.keras.Model):
                 delay_spread={'A': 30e-9, 'B': 100e-9, 'C': 300e-9}[self.channel_model[-1]],
                 carrier_frequency=self.fc,
                 num_rx_ant=num_rx_ant,
-                num_tx_ant=num_tx_ant
+                num_tx_ant=num_tx_ant,
+                min_speed=self.ue_speed
             )
         else:
             raise ValueError(f"Invalid channel model {self.channel_model}!")
