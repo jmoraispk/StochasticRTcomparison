@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 
 import deepmimo as dm
 
+NT = 32
+
 #%% Load data
 
 # matrices = ['rx_pos', 'tx_pos', 'aoa_az', 'aod_az', 'aoa_el', 'aod_el', 
@@ -13,7 +15,7 @@ import deepmimo as dm
 essential_matrices = ['rx_pos', 'aoa_az', 'inter']
 
 # dataset = dm.load('asu_campus_3p5_10cm', matrices=essential_matrices)
-dataset = dm.load('asu_campus_3p5', matrices=essential_matrices)
+dataset = dm.load('asu_campus_3p5')#, matrices=essential_matrices)
 
 #%% Generate all linear sequences in a scenario
 
@@ -117,7 +119,49 @@ plt.show()
 
 #%% Creating ray tracing data for Channel Prediction
 
+# Split all sequences in _ LENGTH
+L = 20
+all_trimmed_seqs = []
+for seq in all_seqs:
+    for i in range(len(seq) - L + 1): # ignores sequences shorter than L
+        all_trimmed_seqs.append(seq[i:i+L])
 
+all_seqs_mat_t = np.array(all_trimmed_seqs)
+print(f"all_seqs_mat_t.shape: {all_seqs_mat_t.shape}")
+
+# sample N sequences from all_trimmed_seqs_mat
+N = 100_000
+idxs = np.random.choice(len(all_seqs_mat_t), N, replace=False)
+all_seqs_mat_t = all_seqs_mat_t[idxs]
+print(f"all_seqs_mat_t.shape: {all_seqs_mat_t.shape}")
+
+# Create channels
+ch_params = dm.ChannelParameters()
+ch_params.bs_antenna.shape = [NT, 1]
+H = dataset.compute_channels(ch_params)
+print(f"H.shape: {H.shape}")
+
+# Concatenate feature dimensions (rx ant, tx ant, subcarriers)
+H2 = H.reshape(H.shape[0], -1)
+print(f"H2.shape: {H2.shape}") # (batch_size, features)
+
+# Make Real by putting IQ into the features
+H2 = np.concatenate([H2.real, H2.imag], axis=-1)
+print(f"H2.shape: {H2.shape}") # (batch_size, 2*features)
+
+# Normalize (min-max)
+H_norm = (H2 - H2.min()) / (H2.max() - H2.min())
+print(f"H_norm.shape: {H_norm.shape}") # (batch_size, features)
+
+# Apply sequences in all_seqs_mat_t (to generate time dimensions)
+H_norm_seq = H_norm[all_seqs_mat_t, :]
+print(f"H_norm_seq.shape: {H_norm_seq.shape}") # (batch_size, seq_len, features)
+
+# Save data
+model = 'asu_campus_3p5'
+folder = 'ch_pred_data'
+os.makedirs(folder, exist_ok=True)
+np.save(f'{folder}/H_norm_{model}.npy', H_norm_seq)
 
 
 #%% [SIONNA ENV] Import and Create Data Generator
@@ -265,12 +309,14 @@ def split_data(H_norm: np.ndarray, train_ratio: float = 0.9,
     if l_in is None:
         l_in = seq_len - l_gap - 1
 
-    if l_in <= 0 or l_gap < 0 or (l_in + l_gap >= seq_len):
+    y_idx = l_in + l_gap - 1
+
+    if l_in <= 0 or l_gap < 0 or (y_idx >= seq_len):
         raise ValueError("Invalid l_in/l_gap for given sequence length")
 
     # build input and target
     x_all = H_norm[:, :l_in]             # first l_in steps
-    y_all = H_norm[:, l_in + l_gap - 1]  # one step after the gap
+    y_all = H_norm[:, y_idx]  # one step after the gap
 
     n_samples = H_norm.shape[0]
     n_train = int(n_samples * train_ratio)
@@ -290,8 +336,7 @@ def split_data(H_norm: np.ndarray, train_ratio: float = 0.9,
 
 #%%
 
-# TODO: LOOP ACROSS DIFFERENT DATASETS (RT)
-models = ['TDL-A', 'CDL-C', 'UMa']
+models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5']
 
 horizons = [0, 1, 2, 3, 5, 10]
 L = 10  # input sequence length
@@ -312,7 +357,7 @@ for model in models:
 
         trained_model, tr_loss, val_loss, elapsed_time = \
             train(ch_pred_model, x_train, y_train, x_val, y_val, 
-                initial_learning_rate=1e-4, batch_size=128, num_epochs=10, 
+                initial_learning_rate=1e-4, batch_size=128, num_epochs=2, 
                 verbose=True)
 
         save_model_weights(trained_model, f'{model}_{horizon}.pth')
