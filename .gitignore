@@ -12,3 +12,4 @@ logs/*
 *.path
 *.png
 channel_experiment*
+old/
