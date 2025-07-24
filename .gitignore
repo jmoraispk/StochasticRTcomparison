@@ -13,3 +13,4 @@ logs/*
 *.png
 channel_experiment*
 old/
+ch_pred_data/*
