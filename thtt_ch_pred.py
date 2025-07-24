@@ -227,41 +227,66 @@ import numpy as np
 from nr_channel_predictor_wrapper import construct_model, train, predict, info
 import matplotlib.pyplot as plt
 
-H_norm = np.load(f'ch_pred_data/H_norm.npy')
+def split_data(H_norm: np.ndarray, train_ratio: float = 0.9, 
+               l_in: int | None = None, l_gap: int = 0):
+    """
+    Parameters
+    ----------
+    H_norm : np.ndarray
+        Array shaped (n_samples, seq_len).
+    train_ratio : float, default 0.9
+        Fraction of samples used for training.
+    l_in : int, optional
+        Number of consecutive time-steps fed to the model (x).  
+        If None, use all available steps except the prediction target and gap.
+    l_gap : int, default 0
+        Number of steps skipped between the end of x and the prediction target y.
 
-# Split into input/output training/validation sets
+    Returns
+    -------
+    x_train, y_train, x_val, y_val : np.ndarray
+    """
 
-def split_data(H_norm: np.ndarray, train_ratio: float = 0.9):
+    seq_len = H_norm.shape[1]
+
+    # default ‑ keep old behaviour ⇒ use every step except the last one
+    if l_in is None:
+        l_in = seq_len - l_gap - 1
+
+    if l_in <= 0 or l_gap < 0 or (l_in + l_gap >= seq_len):
+        raise ValueError("Invalid l_in/l_gap for given sequence length")
+
+    # build input and target
+    x_all = H_norm[:, :l_in]                           # first l_in steps
+    y_all = H_norm[:, l_in + l_gap]                    # one step after the gap
+
     n_samples = H_norm.shape[0]
-    n_train_samples = int(n_samples * train_ratio)
-    # IN/OUT: Take the first n-1 time steps as input (x) and the last as output (y)
-    # TRAIN/VAL: Take the first samples for training and the last for val.
-    x_train = H_norm[:n_train_samples, :-1]
-    y_train = H_norm[:n_train_samples, -1]
-    x_val = H_norm[n_train_samples:, :-1]
-    y_val = H_norm[n_train_samples:, -1]
+    n_train = int(n_samples * train_ratio)
+
+    x_train = x_all[:n_train]
+    y_train = y_all[:n_train]
+    x_val   = x_all[n_train:]
+    y_val   = y_all[n_train:]
+
+    # quick sanity print‑outs
     print(f"x_train.shape: {x_train.shape}")
     print(f"y_train.shape: {y_train.shape}")
     print(f"x_val.shape: {x_val.shape}")
     print(f"y_val.shape: {y_val.shape}")
+
     return x_train, y_train, x_val, y_val
 
-x_train, y_train, x_val, y_val = split_data(H_norm)
 
-# x_train, y_train, x_val, y_val = split_data(H_norm, l_in=10, l_gap=1)
+H_norm = np.load(f'ch_pred_data/H_norm.npy')
+x_train, y_train, x_val, y_val = split_data(H_norm, l_in=5, l_gap=5)
 
-
-# L_in = input seq length
-# L_gap = gap between input and output (1, 2, 3, ...) [ms]
-
-NT = 32
 
 #%%
 
 # TODO: LOOP ACROSS DIFFERENT HORIZONS
 # TODO: LOOP ACROSS DIFFERENT DATASETS (CDL, UMA)
 # TODO: LOOP ACROSS DIFFERENT DATASETS (RT)
-
+NT = 32
 ch_pred_model = construct_model(NT, hidden_size=128, num_layers=2)
 
 info(ch_pred_model)
