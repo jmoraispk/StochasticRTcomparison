@@ -8,12 +8,12 @@ import deepmimo as dm
 
 #%% Load data
 
-matrices = ['rx_pos', 'tx_pos', 'aoa_az', 'aod_az', 'aoa_el', 'aod_el', 
-            'delay', 'power', 'phase', 'inter']
+# matrices = ['rx_pos', 'tx_pos', 'aoa_az', 'aod_az', 'aoa_el', 'aod_el', 
+#             'delay', 'power', 'phase', 'inter']
 essential_matrices = ['rx_pos', 'aoa_az', 'inter']
 
-dataset = dm.load('asu_campus_3p5_10cm', matrices=essential_matrices)
-# dataset = dm.load('asu_campus_3p5', matrices=essential_matrices)
+# dataset = dm.load('asu_campus_3p5_10cm', matrices=essential_matrices)
+dataset = dm.load('asu_campus_3p5', matrices=essential_matrices)
 
 #%% Generate all linear sequences in a scenario
 
@@ -115,15 +115,12 @@ plt.title('Distribution of sequence lengths')
 plt.grid()
 plt.show()
 
-# %%
-
-# TODO: check if stochastic models have time dimension
-# TODO: PUT stochastic channel data AND Ray tracing data in the same format (seqs!)
-
-# TODO: add receiver antennas?
+#%% Creating ray tracing data for Channel Prediction
 
 
-#%% [SIONNA ENV] Load and Prepare Data
+
+
+#%% [SIONNA ENV] Import and Create Data Generator
 
 from tqdm import tqdm
 import numpy as np
@@ -142,10 +139,12 @@ data_cfg = DataConfig(
     n_rx = 1,
     n_tx = NT, 
     n_time_steps = 20,
-    samp_freq = 1e3
+    samp_freq = 1e3,
+    batch_size = 100,
+    seed = 42
 )
 
-model = 'TDL-A'
+model = 'CDL-C'
 config = data_cfg
 
 print(f"Generating stochastic data for {model}...")
@@ -158,7 +157,7 @@ ch_gen = SionnaChannelGenerator(num_prbs=config.n_prbs,
                                 seed=config.seed,
                                 ue_speed=10)
 
-#%%
+#%% [SIONNA ENV] Generate channel data
 
 def channel_sample(batch_size=1000, num_time_steps=10, sampling_frequency=1e3):
     """Sample channel coefficients and delays.
@@ -171,9 +170,12 @@ def channel_sample(batch_size=1000, num_time_steps=10, sampling_frequency=1e3):
     Returns:
         H (np.ndarray): Channel matrix of shape [batch_size, num_rx_ant, num_tx_ant, num_time_steps]
     """
-    a, t = ch_gen.channel(batch_size=batch_size, 
-                         num_time_steps=num_time_steps, 
-                         sampling_frequency=sampling_frequency)
+    if model in ['UMa', 'UMi']:
+        a, t = ch_gen.channel(num_time_steps, sampling_frequency)
+    else:
+        a, t = ch_gen.channel(batch_size=batch_size, 
+                              num_time_steps=num_time_steps, 
+                              sampling_frequency=sampling_frequency)
 
     a, t = a.numpy(), t.numpy()
     # a [batch size, num_rx = 1, num_rx_ant, num_tx=1, num_tx_ant,  num_paths, num_time_steps], tf.complex
@@ -189,18 +191,17 @@ def channel_sample(batch_size=1000, num_time_steps=10, sampling_frequency=1e3):
 
     return H  # [batch size, num_rx_ant, num_tx_ant, num_time_steps]
 
+
+# Generate channel data
 H = np.zeros((config.n_samples, data_cfg.n_rx, data_cfg.n_tx, data_cfg.n_time_steps), dtype=np.complex64)
 
-BATCH = 100  # batch supported by Sionna in my computer
-pbar = tqdm(range(config.n_samples // BATCH), desc="Generating channel data")
+b = config.batch_size
+pbar = tqdm(range(config.n_samples // b), desc="Generating channel data")
 for i in pbar:
-    H[i*BATCH:(i+1)*BATCH] = channel_sample(BATCH, config.n_time_steps, config.samp_freq)
+    H[i*b:(i+1)*b] = channel_sample(b, config.n_time_steps, config.samp_freq)
 
 print(f"H.shape: {H.shape}")
 
-#%% Prepare data for training
-
-# H.shape: (100000, 3, 32, seq_len)
 # Merge antenna dimensions
 H2 = H.reshape(H.shape[0], -1, H.shape[-1])
 print(f"H2.shape: {H2.shape}") # (batch, n_rx_ant * n_tx_ant, seq_len)
@@ -220,12 +221,22 @@ print(f"H_norm.shape: {H_norm.shape}")
 # Save data
 folder = 'ch_pred_data'
 os.makedirs(folder, exist_ok=True)
-np.save(f'{folder}/H_norm.npy', H_norm) # TODO: add dataset name to file name
+np.save(f'{folder}/H_norm_{model}.npy', H_norm)
 
-#%%
+#%% [PYTORCH ENVIRONMENT] Split data
+
 import numpy as np
-from nr_channel_predictor_wrapper import construct_model, train, predict, info
 import matplotlib.pyplot as plt
+
+from nr_channel_predictor_wrapper import (
+    construct_model, train, predict, info, 
+    save_model_weights, load_model_weights
+)
+
+NT = 32
+
+def db(x):
+    return 10 * np.log10(x)
 
 def split_data(H_norm: np.ndarray, train_ratio: float = 0.9, 
                l_in: int | None = None, l_gap: int = 0):
@@ -241,6 +252,7 @@ def split_data(H_norm: np.ndarray, train_ratio: float = 0.9,
         If None, use all available steps except the prediction target and gap.
     l_gap : int, default 0
         Number of steps skipped between the end of x and the prediction target y.
+        If l_gap = 0, use the last input step as prediction target.
 
     Returns
     -------
@@ -257,8 +269,8 @@ def split_data(H_norm: np.ndarray, train_ratio: float = 0.9,
         raise ValueError("Invalid l_in/l_gap for given sequence length")
 
     # build input and target
-    x_all = H_norm[:, :l_in]                           # first l_in steps
-    y_all = H_norm[:, l_in + l_gap]                    # one step after the gap
+    x_all = H_norm[:, :l_in]             # first l_in steps
+    y_all = H_norm[:, l_in + l_gap - 1]  # one step after the gap
 
     n_samples = H_norm.shape[0]
     n_train = int(n_samples * train_ratio)
@@ -276,43 +288,62 @@ def split_data(H_norm: np.ndarray, train_ratio: float = 0.9,
 
     return x_train, y_train, x_val, y_val
 
-
-H_norm = np.load(f'ch_pred_data/H_norm.npy')
-x_train, y_train, x_val, y_val = split_data(H_norm, l_in=5, l_gap=5)
-
-
 #%%
 
-# TODO: LOOP ACROSS DIFFERENT HORIZONS
-# TODO: LOOP ACROSS DIFFERENT DATASETS (CDL, UMA)
 # TODO: LOOP ACROSS DIFFERENT DATASETS (RT)
-NT = 32
-ch_pred_model = construct_model(NT, hidden_size=128, num_layers=2)
+models = ['TDL-A', 'CDL-C', 'UMa']
 
-info(ch_pred_model)
+horizons = [0, 1, 2, 3, 5, 10]
+L = 10  # input sequence length
 
-trained_model, tr_loss, val_loss, elapsed_time = \
-    train(ch_pred_model, x_train, y_train, x_val, y_val, 
-          initial_learning_rate=1e-4, batch_size=128, num_epochs=30, 
-          validation_freq=1, verbose=True)
+val_loss_per_horizon_gru = {model: [] for model in models}
+val_loss_per_horizon_sh = []
 
-# sample & hold baseline
-sh_loss = np.mean(np.abs(x_val[:, 0] - y_val))
+for model in models:
+    H_norm = np.load(f'ch_pred_data/H_norm_{model}.npy') # (n_samples, seq_len)
+
+    for horizon in horizons:
+        print(f"========== Horizon: {horizon} ==========")
+        x_train, y_train, x_val, y_val = split_data(H_norm, l_in=L, l_gap=horizon)
+
+        ch_pred_model = construct_model(NT, hidden_size=128, num_layers=2)
+
+        info(ch_pred_model)
+
+        trained_model, tr_loss, val_loss, elapsed_time = \
+            train(ch_pred_model, x_train, y_train, x_val, y_val, 
+                initial_learning_rate=1e-4, batch_size=128, num_epochs=10, 
+                verbose=True)
+
+        save_model_weights(trained_model, f'{model}_{horizon}.pth')
+
+        # sample & hold baseline
+        sh_loss = np.mean(np.abs(x_val[:, -1] - y_val))
+
+        # Plot training and validation loss
+        plt.plot(db(tr_loss), label='Training')
+        plt.plot(db(val_loss), label='Validation')
+        plt.xlabel('Epoch')
+        plt.ylabel('NMSE Loss (dB)')
+        plt.title(f'Training and validation loss for {model} horizon {horizon} ms')
+        plt.legend()
+        plt.grid()
+        plt.show()
+
+        val_loss_per_horizon_gru[model].append(db(val_loss[-1]))
+        val_loss_per_horizon_sh.append(db(sh_loss))
 
 #%%
-plt.plot(10*np.log10(tr_loss), label='Training')
-plt.plot(10*np.log10(val_loss), label='Validation')
-plt.xlabel('Epoch')
-plt.ylabel('Loss (dB)')
-plt.title('Training and validation loss')
+
+for model in models:
+    plt.plot(horizons, val_loss_per_horizon_gru[model], label=model)
+plt.plot(horizons, val_loss_per_horizon_sh, label='Sample & Hold')
+plt.xlabel('Horizon (ms)')
+plt.ylabel('NMSE Loss (dB)')
+plt.title('Validation loss per horizon')
 plt.legend()
 plt.grid()
 plt.show()
-
-#%%
-
-y_pred = predict(trained_model, x_val)
-
 
 #%%
 
@@ -323,3 +354,6 @@ y_pred = predict(trained_model, x_val)
 # 3. UMa has both antenna correlation (via antenna array) and variation
 
 # %%
+
+# fileName = save_model_weights(chanPredictor, modelFileName)
+# model = load_model_weights(chanPredictor, modelFileName)
