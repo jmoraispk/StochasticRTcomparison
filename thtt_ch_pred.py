@@ -335,6 +335,8 @@ def split_data(H_norm: np.ndarray, train_ratio: float = 0.9,
     return x_train, y_train, x_val, y_val
 
 #%%
+models_folder = 'ch_pred_models'
+os.makedirs(models_folder, exist_ok=True)
 
 models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5']
 
@@ -360,7 +362,7 @@ for model in models:
                 initial_learning_rate=1e-4, batch_size=128, num_epochs=2, 
                 verbose=True)
 
-        save_model_weights(trained_model, f'{model}_{horizon}.pth')
+        save_model_weights(trained_model, f'{models_folder}/{model}_{horizon}.pth')
 
         # sample & hold baseline
         sh_loss = np.mean(np.abs(x_val[:, -1] - y_val))
