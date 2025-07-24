@@ -152,7 +152,7 @@ class ChannelPredictorManager:
 
         return train_loader, x_valid_tensor, y_valid_tensor
 
-    def train(self, train_loader, x_valid_tensor, y_valid_tensor, num_epochs=10, validation_frequency=1, patience=30):
+    def train(self, train_loader, x_valid_tensor, y_valid_tensor, num_epochs=10, patience=30):
         """
         Trains the GRU neural network model.
 
@@ -160,12 +160,11 @@ class ChannelPredictorManager:
         - train_loader: DataLoader, the data loader for the training dataset.
         - val_loader: DataLoader, the data loader for the validation dataset.
         - num_epochs: int, the total number of epochs for training.
-        - validation_frequency: int, how often (in epochs) to perform validation.
         - patience: int, the number of epochs with no improvement after which training will be stopped.
 
         Returns:
         - training_losses: list of floats, the training loss recorded at each iteration.
-        - validation_losses: list of floats, the validation loss recorded every `validation_frequency` epochs.
+        - validation_losses: list of floats, the validation loss recorded at each iteration.
         - elapsed_time: float, the total training time in seconds.
         """
         # initialize training time
@@ -198,31 +197,27 @@ class ChannelPredictorManager:
             # Update learning rate scheduler
             self.scheduler.step(loss.item())
 
-            # Print learning rate and loss
+            # Run validation
+            avg_val_loss = self.evaluate(x_valid_tensor, y_valid_tensor)
+            validation_losses.append(avg_val_loss)
             if self.verbose:
+                elapsed_time = time.time() - start_time
                 print(f'Epoch [{epoch+1}/{num_epochs}], '
-                      f'Training Loss: {avg_train_losses[-1]:.4f}')
+                      f'Train Loss: {avg_train_losses[-1]:.4f}, '
+                      f'Val. Loss: {avg_val_loss:.4f}, '
+                      f'Time Elapsed: {elapsed_time:.2f} s')
 
-            if (epoch + 1) % validation_frequency == 0:
-                # Run validation
-                avg_val_loss = self.evaluate(x_valid_tensor, y_valid_tensor)
-                validation_losses.append(avg_val_loss)
-                if self.verbose:
-                    elapsed_time = time.time() - start_time
-                    print(f'Epoch [{epoch+1}/{num_epochs}], Training Loss: {avg_train_losses[-1]:.4f}, '
-                          f'Validation Loss: {avg_val_loss:.4f}, Time Elapsed: {elapsed_time:.2f} seconds')
+            # Update best validation loss for early stopping
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                epochs_since_improvement = 0
+            else:
+                epochs_since_improvement += 1
 
-                # Update best validation loss for early stopping
-                if avg_val_loss < best_val_loss:
-                    best_val_loss = avg_val_loss
-                    epochs_since_improvement = 0
-                else:
-                    epochs_since_improvement += 1
-
-                # Check for early stopping
-                if epochs_since_improvement >= patience:
-                    print("Early stopping triggered")
-                    break
+            # Check for early stopping
+            if epochs_since_improvement >= patience:
+                print("Early stopping triggered")
+                break
 
         elapsed_time = time.time() - start_time
         return avg_train_losses, validation_losses, elapsed_time
@@ -474,8 +469,8 @@ if __name__ == "__main__":
 
     # Train the model
     training_loss, validation_loss, elapsed_time = chanpre.train(train_loader, val_loader, 
-                                                                       num_epochs=epochs, validation_frequency=valid_freq, 
-                                                                       patience=np.inf, plot_progress=True)
+                                                                 num_epochs=epochs, 
+                                                                 patience=np.inf, plot_progress=True)
     
     # Save training results
     current_time = datetime.now()
