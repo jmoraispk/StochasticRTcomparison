@@ -51,6 +51,8 @@ class DataConfig:
     snr: int = 50
     freq_selection: np.ndarray = None  # Will be computed in __post_init__
     rt_uniform_steps: List[int] = None  # Steps for uniform sampling in ray tracing
+    n_time_steps: int = 10 # number of time steps (for channel prediction)
+    samp_freq: float = 1e3 # Hz
 
     def __post_init__(self):
         """Initialize derived parameters after instance creation."""
