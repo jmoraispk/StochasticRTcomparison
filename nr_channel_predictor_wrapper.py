@@ -44,7 +44,7 @@ def train(chan_predictor,
           x_train: np.ndarray, y_train: np.ndarray, 
           x_val: np.ndarray, y_val: np.ndarray, 
           initial_learning_rate: float, batch_size: int, num_epochs: int, 
-          validation_freq: int, verbose: bool=False):
+          validation_freq: int = 1, verbose: bool=False):
     """
     Trains a channel predictor PyTorch model using offline training.
 
@@ -87,9 +87,7 @@ def train(chan_predictor,
     # Train the model
     training_loss, validation_loss, elapsed_time = chanpre.train(
         train_loader, x_val_tensor, y_val_tensor,
-        num_epochs=num_epochs,
-        validation_frequency=validation_freq, 
-        patience=np.inf)
+        num_epochs=num_epochs, patience=np.inf)
     
     # Return a list containing the trained model and training metrics
     # This list appears as cell array in MATLAB
