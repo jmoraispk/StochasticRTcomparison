@@ -344,7 +344,7 @@ horizons = [0, 1, 2, 3, 5, 10]
 L = 10  # input sequence length
 
 val_loss_per_horizon_gru = {model: [] for model in models}
-val_loss_per_horizon_sh = []
+val_loss_per_horizon_sh = {model: [] for model in models}
 
 for model in models:
     H_norm = np.load(f'ch_pred_data/H_norm_{model}.npy') # (n_samples, seq_len)
@@ -359,13 +359,10 @@ for model in models:
 
         trained_model, tr_loss, val_loss, elapsed_time = \
             train(ch_pred_model, x_train, y_train, x_val, y_val, 
-                initial_learning_rate=1e-4, batch_size=128, num_epochs=2, 
+                initial_learning_rate=1e-4, batch_size=128, num_epochs=80, 
                 verbose=True)
 
         save_model_weights(trained_model, f'{models_folder}/{model}_{horizon}.pth')
-
-        # sample & hold baseline
-        sh_loss = np.mean(np.abs(x_val[:, -1] - y_val))
 
         # Plot training and validation loss
         plt.plot(db(tr_loss), label='Training')
@@ -376,19 +373,26 @@ for model in models:
         plt.legend()
         plt.grid()
         plt.show()
+        
+        # sample & hold baseline (i.e. no prediction)
+        sh_loss = np.mean(np.abs(x_val[:, -1] - y_val))
 
         val_loss_per_horizon_gru[model].append(db(val_loss[-1]))
-        val_loss_per_horizon_sh.append(db(sh_loss))
+        val_loss_per_horizon_sh[model].append(db(sh_loss))
 
 #%%
 
-for model in models:
-    plt.plot(horizons, val_loss_per_horizon_gru[model], label=model)
-plt.plot(horizons, val_loss_per_horizon_sh, label='Sample & Hold')
+plt.figure(dpi=200)
+colors = ['red', 'blue', 'green', 'purple']
+for i, model in enumerate(models):
+    plt.plot(horizons[1:], val_loss_per_horizon_gru[model][1:], label=model, 
+             color=colors[i], marker='o', markersize=3)
+    plt.plot(horizons[1:], val_loss_per_horizon_sh[model][1:], label=model + '_SH', 
+             color=colors[i], linestyle='--', marker='o', markersize=3)
 plt.xlabel('Horizon (ms)')
-plt.ylabel('NMSE Loss (dB)')
-plt.title('Validation loss per horizon')
-plt.legend()
+plt.ylabel('Validation Loss (NMSE in dB)')
+plt.legend(ncols=4, bbox_to_anchor=(0.46, 1.0), loc='lower center')
+plt.xlim(0, 10.5)
 plt.grid()
 plt.show()
 
