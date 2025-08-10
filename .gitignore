@@ -16,3 +16,4 @@ old/
 ch_pred_data/*
 ch_pred_models/*
 results/
+matlab_examples/
