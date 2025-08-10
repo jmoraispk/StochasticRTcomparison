@@ -72,9 +72,6 @@ def train_models(data_matrices: Dict[str, np.ndarray], config: ModelConfig) -> L
     for model in models:
         print(f'Training Model {model}')
         
-        dataset_folder = config.get_dataset_folder(model)
-        os.makedirs(dataset_folder, exist_ok=True)
-        
         # Convert channel to angle-delay domain
         ch = convert_channel_angle_delay(data_matrices[model])[:,:,:,:config.n_taps]
         
