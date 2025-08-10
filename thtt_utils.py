@@ -130,7 +130,8 @@ def train_models(data_matrices: Dict[str, np.ndarray], config: ModelConfig) -> L
 def cross_test_models(data_matrices: Dict[str, np.ndarray],
                      config: ModelConfig,
                      skip_same: bool = False,
-                     use_finetuned: bool = False) -> Tuple[List[Dict], np.ndarray]:
+                     use_finetuned: bool = False,
+                     load_source_from_config: bool = False) -> Tuple[List[Dict], np.ndarray]:
     """Test models across different datasets.
     
     Args:
@@ -141,21 +142,19 @@ def cross_test_models(data_matrices: Dict[str, np.ndarray],
         use_finetuned: Whether to use fine-tuned models for cross-testing.
                       If True, loads models from fine-tuned folder.
                       If False, uses base models from original folder.
-
-    Returns:
-        Tuple of:
-        - List of test results for each model pair
-        - Results matrix where [i,j] is NMSE for model i tested on dataset j
-          (rows=source models, columns=target datasets)
+        load_source_from_config: If True, uses config.source_model as the source model
+                               instead of iterating through data_matrices keys.
+                               Useful for testing specific fine-tuned models.
     """
     models = list(data_matrices.keys())
     all_test_results = []
     n_models = len(models)
     results_matrix = np.zeros((n_models, n_models))
     
-    for target_idx, target_model in enumerate(models):  # target dataset
-        print(f'Testing on dataset {target_model}')
-        
+    # If loading source from config, we only test that specific model
+    source_models = [config.source_model] if load_source_from_config else models
+    
+    for target_idx, target_model in enumerate(models):  # target dataset        
         # Convert target data to angle-delay domain
         ch = convert_channel_angle_delay(data_matrices[target_model])[:,:,:,:config.n_taps]
         ch_prepared = np.swapaxes(ch, -1, -2)
@@ -171,10 +170,12 @@ def cross_test_models(data_matrices: Dict[str, np.ndarray],
             config.test_batch_size
         )
         
-        for source_idx, source_model in enumerate(models):  # source dataset
+        for source_idx, source_model in enumerate(source_models):
             if skip_same and source_model == target_model:
                 continue
-                
+            
+            print(f'\nTesting {source_model} on {target_model}')
+            
             # Determine which model to load based on testing mode
             if use_finetuned and source_model != target_model:
                 # Use fine-tuned model for cross-model testing
@@ -189,7 +190,7 @@ def cross_test_models(data_matrices: Dict[str, np.ndarray],
                 test_config = config.clone(is_finetuning=False)
                 model_path = test_config.get_model_path(source_model)
                 model_type = "original"
-
+            
             # Test model with deterministic behavior
             test_results = test_model(
                 test_loader=test_loader,
@@ -210,6 +211,7 @@ def cross_test_models(data_matrices: Dict[str, np.ndarray],
                 print(f'Testing {model_type} {source_model} model on {target_model}: {10*np.log10(mean_nmse):.1f} dB')
             
             # Store results in matrix
+            source_idx = 0 if load_source_from_config else source_idx
             results_matrix[source_idx, target_idx] = mean_nmse
             all_test_results.append(test_results)
             

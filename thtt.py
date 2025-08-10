@@ -23,8 +23,8 @@ MATRIX_NAME = 'data_matrices_50k_complex_all.pkl'
 MAT_PATH = os.path.join(DATA_FOLDER, MATRIX_NAME)
 
 # Channel Models
-ch_models = ['TDL-C', 'CDL-C', 'CDL-D', 'UMa', 'UMa!param!asu_campus_3p5']
-rt_scens = ['asu_campus_3p5', 'city_0_newyork_3p5', 'city_1_losangeles_3p5']
+ch_models = ['CDL-C', 'UMa'] # 'UMa!param!asu_campus_3p5'
+rt_scens = ['asu_campus_3p5', 'city_0_newyork_3p5']
 models = rt_scens + ch_models
 
 NT = 32
@@ -68,7 +68,8 @@ models = list(data_matrices.keys())
 
 from model_config import ModelConfig
 from thtt_utils import train_models, cross_test_models
-from thtt_plot import plot_training_results, plot_test_matrix
+from thtt_plot import (plot_training_results, plot_test_matrix, 
+                       plot_pretraining_comparison)
 
 # Create base model configuration
 base_config = ModelConfig(
@@ -147,6 +148,7 @@ for source_idx, source_model in enumerate(models):
         title = f'Fine-tuning {source_model} -> {target_model}'
         print(f"\n{title}")
         
+        # Fine saved models to "_finetuned" folder internally
         if os.path.exists(f'./channel_experiment_all_finetuned/model_{source_model}_{target_model}.pth'):
             print(f"Model {source_model} -> {target_model} already exists")
             continue
@@ -191,7 +193,7 @@ print(df.to_string())
 # Future work: add a way to measure the performance DROP in the fine-tuned models
 #              E.g. test the fine-tuned model always on the source model's data
 
-#%% [PYTORCH ENV] Plot GAIN from fine-tuning
+#%% [PYTORCH ENV] Evaluate GAIN from fine-tuning
 
 gain_matrix = finetuned_results_matrix / results_matrix
 
@@ -208,4 +210,124 @@ print("===========================================")
 print(df.to_string())
 
 
-#%%
+#%% [PYTORCH ENV] Compare pre-trained vs non-pre-trained models
+
+# Configuration
+data_percents = [0.5, 1, 5, 10, 20, 30, 40, 50]  # Percentages of training data to use
+models = ['asu_campus_3p5', 'city_0_newyork_3p5', 'CDL-C', 'UMa']
+base_model = models[0]  # Model to train from scratch
+pretrained_models = models[1:]  # Models to use for pre-training
+
+# Pre-train models (ONLY if not done before)
+new_base_config = base_config.clone(dataset_main_folder='channel_experiment_all_percentages')
+pre_train = False
+if pre_train:
+    data_matrices_to_pre_train = {model: data_matrices[model] for model in pretrained_models}
+    all_res = train_models(data_matrices_to_pre_train, new_base_config)
+    plot_training_results(all_res, pretrained_models, title='Pre-training')
+
+# Calculate sizes for train/test split
+samp_per_model = [data_matrices[model].shape[0] for model in models]
+n_samples = min(samp_per_model)  # Use minimum samples across all models
+n_train_total = int(n_samples * max(data_percents) / 100)
+
+# Create fixed test set indices
+np.random.seed(42)  # Use fixed seed for reproducibility
+all_indices = np.random.permutation(n_samples)
+
+# Prepare test data for all models
+test_data = data_matrices[base_model][test_indices]
+
+# Initialize results matrix: rows=data_percents, cols=[base_model + pretrained_models]
+results_matrix = np.zeros((len(data_percents), len(models)))
+results_matrix_db = np.zeros_like(results_matrix)
+
+# For each data percentage
+for perc_idx, data_percent in enumerate(data_percents):
+    print(f"\nTraining with {data_percent}% of data...")
+    
+    # Calculate number of training samples for this percentage
+    n_train = int(n_train_total * data_percent / 100)
+    train_indices = all_indices[:n_train]
+    test_indices = all_indices[n_train:]
+
+    # Prepare training data
+    train_data = data_matrices[base_model][train_indices]
+    # Step 1: Train base model from scratch
+    print(f"\nTraining {base_model} from scratch...")
+
+    # Train base model
+    base_results = train_models({base_model: train_data}, new_base_config)
+    
+    # Test base model
+    test_results, test_matrix = cross_test_models(
+        {base_model: test_data}, 
+        new_base_config,
+        use_finetuned=False
+    )
+    results_matrix[perc_idx, 0] = test_matrix[0, 0]  # Store base model result
+    
+    # Step 2: Fine-tune each pre-trained model
+    for model_idx, pretrained_model in enumerate(pretrained_models):
+        print(f"\nFine-tuning {pretrained_model} model...")
+        
+        # Create config for fine-tuning (load from previous pre-training)
+        finetune_config = new_base_config.for_finetuning(
+            source_model=pretrained_model,
+            num_epochs=15,  # Adjust as needed
+        )
+        
+        # Fine-tune model
+        finetune_results = train_models({base_model: train_data}, finetune_config)
+        
+        # Test fine-tuned model
+        test_results, test_matrix = cross_test_models(
+            {base_model: test_data}, 
+            finetune_config,
+            use_finetuned=True,
+            load_source_from_config=True
+        )
+        results_matrix[perc_idx, model_idx + 1] = test_matrix[0, 0]
+    
+    # Convert results to dB for this percentage
+    results_matrix_db[perc_idx] = 10 * np.log10(results_matrix[perc_idx])
+    
+    # Print results for this percentage
+    print(f"\nResults for {data_percent}% training data (NMSE in dB):")
+    print("=" * 50)
+    print(f"Base model ({base_model}): {results_matrix_db[perc_idx, 0]:.1f} dB")
+    for i, model in enumerate(pretrained_models):
+        print(f"Pre-trained {model}: {results_matrix_db[perc_idx, i + 1]:.1f} dB")
+    
+
+# Print final results table
+print("\nFinal Results (NMSE in dB):")
+print("=" * 50)
+df = pd.DataFrame(
+    results_matrix_db,
+    index=[f"{p}%" for p in data_percents],
+    columns=[base_model] + pretrained_models
+)
+print(df.round(1).to_string())
+
+#%% Plot results for publication
+
+# Plot performance comparison
+plot_pretraining_comparison(
+    data_percents=data_percents,
+    results_matrix_db=results_matrix_db,
+    models=[base_model] + pretrained_models,
+    save_path='./results',
+    plot_type='performance'
+)
+
+# Plot gain comparison
+plot_pretraining_comparison(
+    data_percents=data_percents,
+    results_matrix_db=results_matrix_db,
+    models=[base_model] + pretrained_models,
+    save_path='./results',
+    plot_type='gain'
+)
+
+# %%

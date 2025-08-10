@@ -1,6 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from typing import Optional
+import os
+import matplotlib as mpl
 
 def plot_training_results(all_res: list, models: list, title: Optional[str] = None,
                           save_path: Optional[str] = None) -> None:
@@ -85,4 +87,88 @@ def plot_test_matrix(results_matrix: np.ndarray, models: list, save_path: Option
     
     if save_path:
         plt.savefig(save_path, bbox_inches='tight', dpi=300)
+    plt.show()
+
+def plot_pretraining_comparison(data_percents: list,
+                              results_matrix_db: np.ndarray,
+                              models: list,
+                              save_path: str = './results',
+                              plot_type: str = 'performance') -> None:
+    """Plot pre-training comparison results.
+    
+    Args:
+        data_percents: List of training data percentages
+        results_matrix_db: Matrix of results in dB where rows=percentages, cols=models
+        models: List of model names
+        save_path: Path to save the plots
+        plot_type: Either 'performance' or 'gain' to choose plot type
+    """
+    # Set up publication-quality plot settings
+    plt.style.use('seaborn-v0_8-paper')
+    mpl.rcParams['figure.figsize'] = (10, 6)
+    mpl.rcParams['figure.dpi'] = 300
+    mpl.rcParams['font.size'] = 12
+    mpl.rcParams['axes.labelsize'] = 14
+    mpl.rcParams['axes.titlesize'] = 16
+    mpl.rcParams['lines.linewidth'] = 2.5
+    mpl.rcParams['lines.markersize'] = 8
+    mpl.rcParams['legend.fontsize'] = 12
+    mpl.rcParams['legend.frameon'] = True
+    mpl.rcParams['legend.framealpha'] = 0.8
+    mpl.rcParams['legend.edgecolor'] = '0.8'
+
+    # Define consistent markers and colors
+    markers = ['o', 's', '^', 'D']  # Different marker for each line
+    colors = ['#ff7f0e', '#1f77b4', '#2ca02c', '#d62728']  # Orange, Blue, Green, Red
+
+    # Create figure
+    _, ax = plt.subplots()
+
+
+    # Plot each model's performance
+    k = 0 if plot_type == 'performance' else 1
+    gains = results_matrix_db[:, 1:] - results_matrix_db[:, :1]
+    y = results_matrix_db if plot_type == 'performance' else gains
+    for i, model in enumerate(models[k:]):
+        ax.plot(data_percents, y[:, i], 
+                marker=markers[i+k], label=model.replace('_', ' '),
+                color=colors[i+k],
+                markerfacecolor='white', markeredgewidth=2)
+
+    if plot_type == 'performance':
+        ax.set_ylabel('NMSE (dB)')
+        ax.set_title('Model Performance vs Training Data Size')
+        ax.legend(title='Models', loc='upper right')
+        
+        filename = 'pretrain_comparison'
+
+    else:  # gain plot
+        ax.axhline(y=0, color='k', linestyle='--', alpha=0.3)
+
+        ax.set_ylabel('NMSE Gain over Base Model (dB)')
+        ax.set_title('Performance Gain from Pre-training')
+        ax.legend(title='Pre-trained Models', loc='lower right')
+        
+        filename = 'pretrain_gain_comparison'
+
+    # Common plot settings
+    ax.set_xlabel('Training Data (%)')
+    ax.grid(True, linestyle='--', alpha=0.7)
+    
+    # Set x-axis to show percentages
+    ax.set_xticks(data_percents)
+    ax.set_xticklabels([f'{p}%' for p in data_percents])
+
+    # Add minor gridlines
+    ax.grid(True, which='minor', linestyle=':', alpha=0.4)
+    ax.set_axisbelow(True)
+
+    # Adjust layout
+    plt.tight_layout()
+
+    # Save figures
+    os.makedirs(save_path, exist_ok=True)
+    plt.savefig(f'{save_path}/{filename}.pdf', bbox_inches='tight', dpi=300)
+    plt.savefig(f'{save_path}/{filename}.png', bbox_inches='tight', dpi=300)
+
     plt.show()
