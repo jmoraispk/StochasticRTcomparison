@@ -342,7 +342,7 @@ os.makedirs(models_folder, exist_ok=True)
 # models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5']
 models = ['asu_campus_3p5']
 
-horizons = [0, 1, 3, 5, 10, 15, 20]
+horizons = [1, 3, 5, 10, 15, 20]
 L = 10  # input sequence length
 
 val_loss_per_horizon_gru = {model: [] for model in models}
@@ -362,7 +362,7 @@ for model in models:
         trained_model, tr_loss, val_loss, elapsed_time = \
             train(ch_pred_model, x_train, y_train, x_val, y_val, 
                 initial_learning_rate=1e-4, batch_size=128, num_epochs=80, 
-                verbose=True)
+                verbose=True, patience=10)
 
         save_model_weights(trained_model, f'{models_folder}/{model}_{horizon}.pth')
 
