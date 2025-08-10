@@ -213,7 +213,7 @@ print(df.to_string())
 #%% [PYTORCH ENV] Compare pre-trained vs non-pre-trained models
 
 # Configuration
-data_percents = [0.5, 1, 5, 10, 20, 30, 40, 50]  # Percentages of training data to use
+data_percents = [1, 5, 10, 20, 40, 60, 80]  # Percentages of training data to use
 models = ['asu_campus_3p5', 'city_0_newyork_3p5', 'CDL-C', 'UMa']
 base_model = models[0]  # Model to train from scratch
 pretrained_models = models[1:]  # Models to use for pre-training
@@ -309,6 +309,10 @@ df = pd.DataFrame(
     columns=[base_model] + pretrained_models
 )
 print(df.round(1).to_string())
+
+# Save results matrix
+os.makedirs('./results', exist_ok=True)
+np.save('./results/pretraining_results.npy', results_matrix_db)
 
 #%% Plot results for publication
 

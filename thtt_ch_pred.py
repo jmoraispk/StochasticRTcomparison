@@ -120,7 +120,7 @@ plt.show()
 #%% Creating ray tracing data for Channel Prediction
 
 # Split all sequences in _ LENGTH
-L = 20
+L = 30
 all_trimmed_seqs = []
 for seq in all_seqs:
     for i in range(len(seq) - L + 1): # ignores sequences shorter than L
@@ -138,6 +138,7 @@ print(f"all_seqs_mat_t.shape: {all_seqs_mat_t.shape}")
 # Create channels
 ch_params = dm.ChannelParameters()
 ch_params.bs_antenna.shape = [NT, 1]
+dataset.set_doppler(200)
 H = dataset.compute_channels(ch_params)
 print(f"H.shape: {H.shape}")
 
@@ -338,9 +339,10 @@ def split_data(H_norm: np.ndarray, train_ratio: float = 0.9,
 models_folder = 'ch_pred_models'
 os.makedirs(models_folder, exist_ok=True)
 
-models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5']
+# models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5']
+models = ['asu_campus_3p5']
 
-horizons = [0, 1, 2, 3, 5, 10]
+horizons = [0, 1, 3, 5, 10, 15, 20]
 L = 10  # input sequence length
 
 val_loss_per_horizon_gru = {model: [] for model in models}
