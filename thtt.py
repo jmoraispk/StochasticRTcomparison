@@ -250,6 +250,9 @@ for perc_idx, data_percent in enumerate(data_percents):
     n_train = int(n_train_total * data_percent / 100)
     train_indices = all_indices[:n_train]
     test_indices = all_indices[n_train:]
+    # max_test_size = int(max(data_percents)/100*n_samples)
+    # test_indices = all_indices[max_test_size:]
+    # Test size: keep same size throughout (set to min size), or adapt it
 
     # Prepare training data
     train_data = data_matrices[base_model][train_indices]
