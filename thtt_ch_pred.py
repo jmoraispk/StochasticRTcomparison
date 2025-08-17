@@ -10,7 +10,7 @@ NT = 2
 NR = 1
 
 SNR = 20 # [dB]
-MAX_DOOPLER = 40 # [Hz]
+MAX_DOOPLER = 0 # [Hz]
 
 def db(x):
     return 10 * np.log10(x)
@@ -52,7 +52,7 @@ def get_consecutive_active_segments(dataset: dm.Dataset, idxs: np.ndarray,
     consecutive_arrays = np.split(active_idxs, splits)
     
     # Filter out single-element arrays
-    consecutive_arrays = [arr for arr in consecutive_arrays if len(arr) > min_len]
+    consecutive_arrays = [idxs[arr] for arr in consecutive_arrays if len(arr) > min_len]
     
     return consecutive_arrays
     
@@ -73,9 +73,8 @@ for row_or_col in ['row', 'col']:
         dataset.los.plot()
         for i, arr in enumerate(consecutive_arrays):
             print(f"Segment {i}: {len(arr)} users")
-            idxs_filtered = idxs[arr]
-            plt.scatter(dataset.rx_pos[idxs_filtered, 0], 
-                        dataset.rx_pos[idxs_filtered, 1], color='red', s=.5)
+            plt.scatter(dataset.rx_pos[arr, 0], 
+                        dataset.rx_pos[arr, 1], color='red', s=.5)
         
         plt.savefig(f'{folder}/asu_campus_3p5_{row_or_col}_{k:04d}.png', 
                     bbox_inches='tight', dpi=200)
@@ -103,12 +102,12 @@ def get_all_sequences(dataset: dm.Dataset, min_len: int = 1) -> list[np.ndarray]
     for k in range(n_rows):
         idxs = dataset.get_row_idxs(k)
         consecutive_arrays = get_consecutive_active_segments(dataset, idxs, min_len)
-        all_seqs += [idxs[arr] for arr in consecutive_arrays]
+        all_seqs += consecutive_arrays
 
     for k in range(n_cols):
         idxs = dataset.get_col_idxs(k)
         consecutive_arrays = get_consecutive_active_segments(dataset, idxs, min_len)
-        all_seqs += [idxs[arr] for arr in consecutive_arrays]
+        all_seqs += consecutive_arrays
 
     return all_seqs
 
@@ -172,10 +171,8 @@ noise = np.random.randn(*H2.shape) * np.sqrt(noise_var)
 H_noisy = H2 + noise
 
 # Normalize (min-max)
-h_min = H_noisy.min()
-h_max = H_noisy.max()
-H_noisy_norm = H_noisy / (h_max - h_min)
-H_norm = H2 / (h_max - h_min)
+H_noisy_norm = H_noisy / np.abs(H_noisy).max()
+H_norm = H2 / np.abs(H2).max()
 print(f"H_norm.shape: {H_norm.shape}") # (batch_size, features)
 print(f"H_noisy_norm.shape: {H_noisy_norm.shape}") # (batch_size, features)
 
