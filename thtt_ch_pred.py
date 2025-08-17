@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import deepmimo as dm
 
 NT = 32
+NR = 1
 
 #%% Load data
 
@@ -138,6 +139,7 @@ print(f"all_seqs_mat_t.shape: {all_seqs_mat_t.shape}")
 # Create channels
 ch_params = dm.ChannelParameters()
 ch_params.bs_antenna.shape = [NT, 1]
+ch_params.ue_antenna.shape = [NR, 1]
 dataset.set_doppler(200)
 H = dataset.compute_channels(ch_params)
 print(f"H.shape: {H.shape}")
@@ -173,15 +175,11 @@ from data_gen import DataConfig
 from sionna_ch_gen import SionnaChannelGenerator
 import matplotlib.pyplot as plt
 
-
-NT = 32
-NC = 16
-
 # Configure data generation
 data_cfg = DataConfig(
     n_samples = 100_000,
     n_prbs = 20,
-    n_rx = 1,
+    n_rx = NR,
     n_tx = NT, 
     n_time_steps = 20,
     samp_freq = 1e3,
@@ -189,7 +187,7 @@ data_cfg = DataConfig(
     seed = 42
 )
 
-model = 'CDL-C'
+model = 'TDL-A'
 config = data_cfg
 
 print(f"Generating stochastic data for {model}...")
@@ -200,7 +198,12 @@ ch_gen = SionnaChannelGenerator(num_prbs=config.n_prbs,
                                 n_tx=config.n_tx,
                                 normalize=False,
                                 seed=config.seed,
-                                ue_speed=10)
+                                ue_speed=3, # [m/s]
+                                delay_spread=300e-9, # [s]
+                                frequency=3.5e9, # [Hz]
+                                subcarrier_spacing=15e3) # [Hz]
+
+# E.g. at 3 m/s & 3.5 GHz, max Doppler shift = 37 Hz
 
 #%% [SIONNA ENV] Generate channel data
 
@@ -340,9 +343,10 @@ models_folder = 'ch_pred_models'
 os.makedirs(models_folder, exist_ok=True)
 
 # models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5']
-models = ['asu_campus_3p5']
+# models = ['asu_campus_3p5']
+models = ['TDL-A']
 
-horizons = [1, 3, 5, 10, 15, 20]
+horizons = [1, 3, 5, 10, 20]
 L = 10  # input sequence length
 
 val_loss_per_horizon_gru = {model: [] for model in models}

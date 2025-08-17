@@ -35,7 +35,8 @@ class SionnaChannelGenerator(tf.keras.Model):
     def __init__(self, num_prbs: int, channel_name: str = 'UMa', batch_size: int = 1, 
                  n_rx: int = 1, n_tx: int = 1, normalize: bool = True, n_ue: int = 1,
                  seed: Optional[int] = None, topology: Optional[TopologyConfig] = None,
-                 ue_speed: float = 1):
+                 ue_speed: float = 1, delay_spread: float = 100e-9, frequency: float = 3.5e9,
+                 subcarrier_spacing: float = 30e3):
         """
         Initializor for a Sionna Channel Generator.
 
@@ -56,9 +57,9 @@ class SionnaChannelGenerator(tf.keras.Model):
         
         # parameters for channel modeling
         self.channel_model = channel_name
-        self.fc = 3.5e9                  # Frequency [Hz]
+        self.fc = frequency              # Frequency [Hz]
         self.link_direction = 'downlink' # Link direction (direction of the signal)
-        self.delay_spread = 100e-9       # Nominal delay spread [s]
+        self.delay_spread = delay_spread # Nominal delay spread [s]
         self.ue_speed = ue_speed        # User speed [m/s]
         self.n_ue = n_ue
 
@@ -83,7 +84,7 @@ class SionnaChannelGenerator(tf.keras.Model):
         self.rg = sionna.ofdm.ResourceGrid(
             num_ofdm_symbols=1,
             fft_size=self.num_prbs * 12,  # Num. subcarriers
-            subcarrier_spacing=30e3,      # [kHz]
+            subcarrier_spacing=self.subcarrier_spacing,      # [kHz]
             num_tx=1,
             num_streams_per_tx=1)
 
@@ -161,7 +162,7 @@ class SionnaChannelGenerator(tf.keras.Model):
         elif 'TDL' in self.channel_model:
             ch_model = sionna.channel.tr38901.TDL(
                 model=self.channel_model[-1],
-                delay_spread={'A': 30e-9, 'B': 100e-9, 'C': 300e-9}[self.channel_model[-1]],
+                delay_spread=self.delay_spread,
                 carrier_frequency=self.fc,
                 num_rx_ant=num_rx_ant,
                 num_tx_ant=num_tx_ant,
