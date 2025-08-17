@@ -208,7 +208,7 @@ class ChannelPredictorManager:
                       f'Time Elapsed: {elapsed_time:.2f} s')
 
             # Update best validation loss for early stopping
-            if avg_val_loss < best_val_loss:
+            if avg_val_loss < best_val_loss * 0.99:
                 best_val_loss = avg_val_loss
                 epochs_since_improvement = 0
             else:
