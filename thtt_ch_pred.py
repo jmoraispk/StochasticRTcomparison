@@ -9,6 +9,17 @@ import deepmimo as dm
 NT = 2
 NR = 1
 
+def db(x):
+    return 10 * np.log10(x)
+
+def mse(pred, target):
+    """Calculate mean squared error between prediction and target."""
+    return np.mean(np.abs(pred - target) ** 2)
+
+def nmse(pred, target):
+    """Calculate normalized (by power) MSE between prediction and target."""
+    return mse(pred, target) / np.mean(np.abs(target) ** 2)
+
 #%% [ANY ENV] Load data
 
 # matrices = ['rx_pos', 'tx_pos', 'aoa_az', 'aod_az', 'aoa_el', 'aod_el', 
@@ -89,12 +100,12 @@ def get_all_sequences(dataset: dm.Dataset, min_len: int = 1) -> list[np.ndarray]
     for k in range(n_rows):
         idxs = dataset.get_row_idxs(k)
         consecutive_arrays = get_consecutive_active_segments(dataset, idxs, min_len)
-        all_seqs += consecutive_arrays
+        all_seqs += [idxs[arr] for arr in consecutive_arrays]
 
     for k in range(n_cols):
         idxs = dataset.get_col_idxs(k)
         consecutive_arrays = get_consecutive_active_segments(dataset, idxs, min_len)
-        all_seqs += consecutive_arrays
+        all_seqs += [idxs[arr] for arr in consecutive_arrays]
 
     return all_seqs
 
@@ -133,8 +144,8 @@ print(f"all_seqs_mat_t.shape: {all_seqs_mat_t.shape}")
 # sample N sequences from all_trimmed_seqs_mat
 N = 100_000
 idxs = np.random.choice(len(all_seqs_mat_t), N, replace=False)
-all_seqs_mat_t = all_seqs_mat_t[idxs]
-print(f"all_seqs_mat_t.shape: {all_seqs_mat_t.shape}")
+all_seqs_mat_t2 = all_seqs_mat_t[idxs]
+print(f"all_seqs_mat_t2.shape: {all_seqs_mat_t2.shape}")
 
 # Create channels
 ch_params = dm.ChannelParameters()
@@ -152,12 +163,23 @@ print(f"H2.shape: {H2.shape}") # (batch_size, features)
 H2 = np.concatenate([H2.real, H2.imag], axis=-1)
 print(f"H2.shape: {H2.shape}") # (batch_size, 2*features)
 
+# Add noise
+SNR = 20 # [dB]
+noise_var = 10**(-SNR/10)
+noise = np.random.randn(*H2.shape) * np.sqrt(noise_var)
+H_noisy = H2 + noise
+
 # Normalize (min-max)
-H_norm = (H2 - H2.min()) / (H2.max() - H2.min())
+h_min = H_noisy.min()
+h_max = H_noisy.max()
+H_noisy_norm = (H_noisy) / (h_max - h_min)
+H_norm = (H2) / (h_max - h_min)
 print(f"H_norm.shape: {H_norm.shape}") # (batch_size, features)
+print(f"H_noisy_norm.shape: {H_noisy_norm.shape}") # (batch_size, features)
 
 # Apply sequences in all_seqs_mat_t (to generate time dimensions)
-H_norm_seq = H_norm[all_seqs_mat_t, :]
+H_norm_seq = H_norm[all_seqs_mat_t2, :]
+H_noisy_norm_seq = H_noisy_norm[all_seqs_mat_t2, :]
 print(f"H_norm_seq.shape: {H_norm_seq.shape}") # (batch_size, seq_len, features)
 
 # Save data
@@ -165,7 +187,7 @@ model = 'asu_campus_3p5'
 folder = 'ch_pred_data'
 os.makedirs(folder, exist_ok=True)
 np.save(f'{folder}/H_norm_{model}.npy', H_norm_seq)
-
+np.save(f'{folder}/H_noisy_norm_{model}.npy', H_noisy_norm_seq)
 
 #%% [SIONNA ENV] Import and Create Data Generator
 
@@ -179,7 +201,7 @@ data_cfg = DataConfig(
     n_prbs = 20,
     n_rx = NR,
     n_tx = NT, 
-    n_time_steps = 55 + 20, # 55 for input, 20 for output
+    n_time_steps = 10 + 100, # 55 for input, 100 for output
     samp_freq = 1e3,
     batch_size = 100,
     seed = 42
@@ -237,6 +259,15 @@ def channel_sample(batch_size=1000, num_time_steps=10, sampling_frequency=1e3):
     
     H = a.sum(axis=3)
 
+    # Calculate frequency-domain response at a chosen subcarrier (non-DC)
+    # fft_size = data_cfg.n_prbs * 12
+    # delta_f = ch_gen.subcarrier_spacing  # [Hz]
+    # k_offset = 1  # first subcarrier offset from DC; adjust if needed
+    # f_k = k_offset * delta_f
+
+    # phase_shifts = np.exp(-1j * 2 * np.pi * f_k * t)  # [batch size, num_paths]
+    # H = np.sum(a * phase_shifts[:, None, None, :, None], axis=3)
+
     return H  # [batch size, num_rx_ant, num_tx_ant, num_time_steps]
 
 # Generate channel data
@@ -266,13 +297,27 @@ print(f"H2.shape: {H2.shape}") # (batch_size, sequence_length, features)
 H2 = np.concatenate([H2.real, H2.imag], axis=2)
 print(f"H2.shape: {H2.shape}") # (batch_size, sequence_length, 2*features)
 
+# Add noise
+SNR = 20 # [dB]
+noise_var = 10**(-SNR/10)
+noise = np.random.randn(*H2.shape) * np.sqrt(noise_var)
+H_noisy = H2 + noise
+
 # Normalize (min-max)
-H_norm = (H2 - H2.min()) / (H2.max() - H2.min())
-print(f"H_norm.shape: {H_norm.shape}")
+h_min = H_noisy.min()
+h_max = H_noisy.max()
+H_noisy_norm = (H_noisy) / (h_max - h_min)
+H_norm = (H2) / (h_max - h_min)
+print(f"H_noisy_norm.shape: {H_noisy_norm.shape}")
+
+# NOTE: either normalize just range (no shift): x = x / (x_max - x_min)
+#       or normalize range and shift: x = (x - x_min) / (x_max - x_min)
+#       BUT the latter requires a denormalization when computing NMSE
 
 # Save data
 folder = 'ch_pred_data'
 os.makedirs(folder, exist_ok=True)
+np.save(f'{folder}/H_noisy_norm_{model}.npy', H_noisy_norm)
 np.save(f'{folder}/H_norm_{model}.npy', H_norm)
 
 #%% [PYTORCH ENVIRONMENT] Split data
@@ -281,9 +326,6 @@ from nr_channel_predictor_wrapper import (
     construct_model, train, predict, info, 
     save_model_weights, load_model_weights
 )
-
-def db(x):
-    return 10 * np.log10(x)
 
 def split_data(H_norm: np.ndarray, train_ratio: float = 0.9, 
                l_in: int | None = None, l_gap: int = 0):
@@ -337,22 +379,20 @@ def split_data(H_norm: np.ndarray, train_ratio: float = 0.9,
 
     return x_train, y_train, x_val, y_val
 
-#%%
+#%% [PYTORCH ENVIRONMENT] Train models
+
 models_folder = 'ch_pred_models'
 os.makedirs(models_folder, exist_ok=True)
 
 # models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5']
-# models = ['asu_campus_3p5']
-models = ['TDL-A']
+models = ['asu_campus_3p5']
+# models = ['TDL-A']
 
-horizons = [1, 3, 5, 10, 20]
+horizons = [1, 3, 5, 10, 20]#, 30, 40]
 L = 10  # input sequence length
 
 val_loss_per_horizon_gru = {model: [] for model in models}
 val_loss_per_horizon_sh = {model: [] for model in models}
-
-def nmse(pred, target):
-    return np.mean(np.abs(pred - target) ** 2) / np.mean(np.abs(target) ** 2)
 
 for model in models:
     H_norm = np.load(f'ch_pred_data/H_norm_{model}.npy') # (n_samples, seq_len)
@@ -385,7 +425,7 @@ for model in models:
         # sample & hold baseline (i.e. no prediction)
         sh_loss = nmse(x_val[:, -1], y_val)
 
-        val_loss_per_horizon_gru[model].append(db(val_loss[-1]))
+        # val_loss_per_horizon_gru[model].append(db(val_loss[-1]))
         val_loss_per_horizon_sh[model].append(db(sh_loss))
 
 #%%
