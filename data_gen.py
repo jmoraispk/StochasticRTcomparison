@@ -53,6 +53,7 @@ class DataConfig:
     rt_uniform_steps: List[int] = None  # Steps for uniform sampling in ray tracing
     n_time_steps: int = 10 # number of time steps (for channel prediction)
     samp_freq: float = 1e3 # Hz
+    rt_sample_trimming: bool = True
 
     def __post_init__(self):
         """Initialize derived parameters after instance creation."""
@@ -211,10 +212,11 @@ def process_rt_dataset(dataset, txrx_pair_idx: int, config: DataConfig) -> np.nd
     print(f"After active user filtering: {dataset_t.n_ue} UEs")
 
     # Final sampling to match desired size
-    n_final_samples = min(config.n_samples, dataset_t.n_ue)
-    usr_selection = np.random.choice(np.arange(dataset_t.n_ue), size=n_final_samples, replace=False)
-    dataset_t = dataset_t.subset(usr_selection)
-    print(f"After final sampling: {dataset_t.n_ue} UEs")
+    if config.rt_sample_trimming:
+        n_final_samples = min(config.n_samples, dataset_t.n_ue)
+        usr_selection = np.random.choice(np.arange(dataset_t.n_ue), size=n_final_samples, replace=False)
+        dataset_t = dataset_t.subset(usr_selection)
+        print(f"After final sampling: {dataset_t.n_ue} UEs")
 
     return dataset_t.compute_channels(ch_params)
 
@@ -295,10 +297,6 @@ def load_data_matrices(models: List[str], config: DataConfig) -> Dict[str, np.nd
             mat_list = [process_rt_dataset(dataset, idx, config) for idx in tx_rx_pair_idxs]
             mat = np.concatenate(mat_list, axis=0)
 
-            # Trim number of samples to match config.n_samples
-            n_final_samples = min(config.n_samples, mat.shape[0])
-            idxs = np.random.choice(np.arange(mat.shape[0]), size=n_final_samples, replace=False)
-            mat = mat[idxs]
         else:
             raise Exception(f'Model {model} not recognized.')
 
