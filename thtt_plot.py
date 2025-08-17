@@ -89,19 +89,22 @@ def plot_test_matrix(results_matrix: np.ndarray, models: list, save_path: Option
         plt.savefig(save_path, bbox_inches='tight', dpi=300)
     plt.show()
 
-def plot_pretraining_comparison(data_percents: list,
+def plot_pretraining_comparison(x_values: list,
                               results_matrix_db: np.ndarray,
                               models: list,
                               save_path: str = './results',
-                              plot_type: str = 'performance') -> None:
+                              plot_type: str = 'performance',
+                              x_label: str = 'Training Data (%)') -> None:
     """Plot pre-training comparison results.
     
     Args:
-        data_percents: List of training data percentages
-        results_matrix_db: Matrix of results in dB where rows=percentages, cols=models
+        x_values: List of x-axis values (can be percentages, number of datapoints, etc.)
+        results_matrix_db: Matrix of results in dB where rows=x_values, cols=models
         models: List of model names
         save_path: Path to save the plots
         plot_type: Either 'performance' or 'gain' to choose plot type
+        x_label: Label for x-axis. If it contains '%', values will be formatted as percentages,
+                otherwise large numbers will be formatted with commas
     """
     # Set up publication-quality plot settings
     plt.style.use('seaborn-v0_8-paper')
@@ -124,13 +127,12 @@ def plot_pretraining_comparison(data_percents: list,
     # Create figure
     _, ax = plt.subplots()
 
-
     # Plot each model's performance
     k = 0 if plot_type == 'performance' else 1
     gains = results_matrix_db[:, 1:] - results_matrix_db[:, :1]
     y = results_matrix_db if plot_type == 'performance' else gains
     for i, model in enumerate(models[k:]):
-        ax.plot(data_percents, y[:, i], 
+        ax.plot(x_values, y[:, i], 
                 marker=markers[i+k], label=model.replace('_', ' '),
                 color=colors[i+k],
                 markerfacecolor='white', markeredgewidth=2)
@@ -152,12 +154,16 @@ def plot_pretraining_comparison(data_percents: list,
         filename = 'pretrain_gain_comparison'
 
     # Common plot settings
-    ax.set_xlabel('Training Data (%)')
+    ax.set_xlabel(x_label)
     ax.grid(True, linestyle='--', alpha=0.7)
     
-    # Set x-axis to show percentages
-    ax.set_xticks(data_percents)
-    ax.set_xticklabels([f'{p}%' for p in data_percents])
+    # Set x-axis ticks and labels
+    ax.set_xticks(x_values)
+    # Infer format from x_label
+    if '%' in x_label:
+        ax.set_xticklabels([f'{x}%' for x in x_values])
+    else:
+        ax.set_xticklabels([f'{x:,}' for x in x_values])
 
     # Add minor gridlines
     ax.grid(True, which='minor', linestyle=':', alpha=0.4)
