@@ -1,4 +1,4 @@
-#%% Imports
+#%% [MANDATORY CONSTANTS - ANY ENV] Imports
 
 import numpy as np
 import os
@@ -6,10 +6,10 @@ import matplotlib.pyplot as plt
 
 import deepmimo as dm
 
-NT = 32
+NT = 2
 NR = 1
 
-#%% Load data
+#%% [ANY ENV] Load data
 
 # matrices = ['rx_pos', 'tx_pos', 'aoa_az', 'aod_az', 'aoa_el', 'aod_el', 
 #             'delay', 'power', 'phase', 'inter']
@@ -18,7 +18,7 @@ essential_matrices = ['rx_pos', 'aoa_az', 'inter']
 # dataset = dm.load('asu_campus_3p5_10cm', matrices=essential_matrices)
 dataset = dm.load('asu_campus_3p5')#, matrices=essential_matrices)
 
-#%% Generate all linear sequences in a scenario
+#%% [ANY ENV] Generate all linear sequences in a scenario
 
 def get_consecutive_active_segments(dataset: dm.Dataset, idxs: np.ndarray,
                                     min_len: int = 1) -> list[np.ndarray]:
@@ -42,7 +42,7 @@ def get_consecutive_active_segments(dataset: dm.Dataset, idxs: np.ndarray,
     
     return consecutive_arrays
     
-#%% Make video of all sequences
+#%% [ANY ENV] Make video of all sequences
 
 folder = 'sweeps'
 os.makedirs(folder, exist_ok=True)
@@ -81,7 +81,7 @@ subprocess.run([
     f"{folder}/output_60fps.mp4"
 ])
 
-#%% Create all sequences
+#%% [ANY ENV] Create all sequences
 
 def get_all_sequences(dataset: dm.Dataset, min_len: int = 1) -> list[np.ndarray]:
     n_cols, n_rows = dataset.grid_size
@@ -118,7 +118,7 @@ plt.title('Distribution of sequence lengths')
 plt.grid()
 plt.show()
 
-#%% Creating ray tracing data for Channel Prediction
+#%% [ANY ENV] Creating ray tracing data for Channel Prediction
 
 # Split all sequences in _ LENGTH
 L = 30
@@ -170,10 +170,8 @@ np.save(f'{folder}/H_norm_{model}.npy', H_norm_seq)
 #%% [SIONNA ENV] Import and Create Data Generator
 
 from tqdm import tqdm
-import numpy as np
 from data_gen import DataConfig
 from sionna_ch_gen import SionnaChannelGenerator
-import matplotlib.pyplot as plt
 
 # Configure data generation
 data_cfg = DataConfig(
@@ -181,7 +179,7 @@ data_cfg = DataConfig(
     n_prbs = 20,
     n_rx = NR,
     n_tx = NT, 
-    n_time_steps = 20,
+    n_time_steps = 55 + 20, # 55 for input, 20 for output
     samp_freq = 1e3,
     batch_size = 100,
     seed = 42
@@ -233,12 +231,13 @@ def channel_sample(batch_size=1000, num_time_steps=10, sampling_frequency=1e3):
     a = a[:, 0, :, 0, :, :, :]  # [batch size, num_rx_ant num_tx_ant, num_paths, num_time_steps]
     t = t[:, 0, 0, :]  # [batch size, num_paths]
 
-    # Calculate phase shifts and sum along paths
-    phase_shifts = np.exp(-1j * 2 * np.pi * ch_gen.fc * t)
-    H = np.sum(a * phase_shifts[:, None, None, :, None], axis=3)
+    # # Calculate phase shifts and sum along paths
+    # phase_shifts = np.exp(-1j * 2 * np.pi * ch_gen.fc * t)
+    # H = np.sum(a * phase_shifts[:, None, None, :, None], axis=3)
+    
+    H = a.sum(axis=3)
 
     return H  # [batch size, num_rx_ant, num_tx_ant, num_time_steps]
-
 
 # Generate channel data
 H = np.zeros((config.n_samples, data_cfg.n_rx, data_cfg.n_tx, data_cfg.n_time_steps), dtype=np.complex64)
@@ -249,6 +248,11 @@ for i in pbar:
     H[i*b:(i+1)*b] = channel_sample(b, config.n_time_steps, config.samp_freq)
 
 print(f"H.shape: {H.shape}")
+
+# Plot H for specific antennas
+from thtt_ch_pred_plot import plot_iq_from_H
+
+plot_iq_from_H(H)
 
 # Merge antenna dimensions
 H2 = H.reshape(H.shape[0], -1, H.shape[-1])
@@ -273,15 +277,10 @@ np.save(f'{folder}/H_norm_{model}.npy', H_norm)
 
 #%% [PYTORCH ENVIRONMENT] Split data
 
-import numpy as np
-import matplotlib.pyplot as plt
-
 from nr_channel_predictor_wrapper import (
     construct_model, train, predict, info, 
     save_model_weights, load_model_weights
 )
-
-NT = 32
 
 def db(x):
     return 10 * np.log10(x)
@@ -352,6 +351,9 @@ L = 10  # input sequence length
 val_loss_per_horizon_gru = {model: [] for model in models}
 val_loss_per_horizon_sh = {model: [] for model in models}
 
+def nmse(pred, target):
+    return np.mean(np.abs(pred - target) ** 2) / np.mean(np.abs(target) ** 2)
+
 for model in models:
     H_norm = np.load(f'ch_pred_data/H_norm_{model}.npy') # (n_samples, seq_len)
 
@@ -365,8 +367,8 @@ for model in models:
 
         trained_model, tr_loss, val_loss, elapsed_time = \
             train(ch_pred_model, x_train, y_train, x_val, y_val, 
-                initial_learning_rate=1e-4, batch_size=128, num_epochs=80, 
-                verbose=True, patience=10)
+                initial_learning_rate=1e-4, batch_size=64, num_epochs=80, 
+                verbose=True, patience=5)
 
         save_model_weights(trained_model, f'{models_folder}/{model}_{horizon}.pth')
 
@@ -381,24 +383,24 @@ for model in models:
         plt.show()
         
         # sample & hold baseline (i.e. no prediction)
-        sh_loss = np.mean(np.abs(x_val[:, -1] - y_val))
+        sh_loss = nmse(x_val[:, -1], y_val)
 
         val_loss_per_horizon_gru[model].append(db(val_loss[-1]))
         val_loss_per_horizon_sh[model].append(db(sh_loss))
 
 #%%
-
+o = 0
 plt.figure(dpi=200)
 colors = ['red', 'blue', 'green', 'purple']
 for i, model in enumerate(models):
-    plt.plot(horizons[1:], val_loss_per_horizon_gru[model][1:], label=model, 
+    plt.plot(horizons[o:], val_loss_per_horizon_gru[model][o:], label=model, 
              color=colors[i], marker='o', markersize=3)
-    plt.plot(horizons[1:], val_loss_per_horizon_sh[model][1:], label=model + '_SH', 
+    plt.plot(horizons[o:], val_loss_per_horizon_sh[model][o:], label=model + '_SH', 
              color=colors[i], linestyle='--', marker='o', markersize=3)
 plt.xlabel('Horizon (ms)')
 plt.ylabel('Validation Loss (NMSE in dB)')
 plt.legend(ncols=4, bbox_to_anchor=(0.46, 1.0), loc='lower center')
-plt.xlim(0, 10.5)
+plt.xlim(0, horizons[-1] + 0.5)
 plt.grid()
 plt.show()
 
