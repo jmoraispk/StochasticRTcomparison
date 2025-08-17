@@ -6,11 +6,9 @@ file management, and results visualization, while delegating PyTorch-specific
 operations to csinet_train_test.py.
 """
 
-import os
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 
 import numpy as np
-import scipy.io
 
 from csinet_train_test import train_model, create_dataloader, test_model
 from model_config import ModelConfig
