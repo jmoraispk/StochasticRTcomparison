@@ -9,6 +9,9 @@ import deepmimo as dm
 NT = 2
 NR = 1
 
+SNR = 20 # [dB]
+MAX_DOOPLER = 40 # [Hz]
+
 def db(x):
     return 10 * np.log10(x)
 
@@ -151,7 +154,7 @@ print(f"all_seqs_mat_t2.shape: {all_seqs_mat_t2.shape}")
 ch_params = dm.ChannelParameters()
 ch_params.bs_antenna.shape = [NT, 1]
 ch_params.ue_antenna.shape = [NR, 1]
-dataset.set_doppler(200)
+dataset.set_doppler(MAX_DOOPLER)
 H = dataset.compute_channels(ch_params)
 print(f"H.shape: {H.shape}")
 
@@ -164,7 +167,6 @@ H2 = np.concatenate([H2.real, H2.imag], axis=-1)
 print(f"H2.shape: {H2.shape}") # (batch_size, 2*features)
 
 # Add noise
-SNR = 20 # [dB]
 noise_var = 10**(-SNR/10)
 noise = np.random.randn(*H2.shape) * np.sqrt(noise_var)
 H_noisy = H2 + noise
@@ -172,14 +174,14 @@ H_noisy = H2 + noise
 # Normalize (min-max)
 h_min = H_noisy.min()
 h_max = H_noisy.max()
-H_noisy_norm = (H_noisy) / (h_max - h_min)
-H_norm = (H2) / (h_max - h_min)
+H_noisy_norm = H_noisy / (h_max - h_min)
+H_norm = H2 / (h_max - h_min)
 print(f"H_norm.shape: {H_norm.shape}") # (batch_size, features)
 print(f"H_noisy_norm.shape: {H_noisy_norm.shape}") # (batch_size, features)
 
 # Apply sequences in all_seqs_mat_t (to generate time dimensions)
-H_norm_seq = H_norm[all_seqs_mat_t2, :]
-H_noisy_norm_seq = H_noisy_norm[all_seqs_mat_t2, :]
+H_norm_seq = H_norm[all_seqs_mat_t2, :].astype(np.float32)
+H_noisy_norm_seq = H_noisy_norm[all_seqs_mat_t2, :].astype(np.float32)
 print(f"H_norm_seq.shape: {H_norm_seq.shape}") # (batch_size, seq_len, features)
 
 # Save data
@@ -210,6 +212,9 @@ data_cfg = DataConfig(
 model = 'TDL-A'
 config = data_cfg
 
+fc = 3.5e9 # [Hz]
+speed = MAX_DOOPLER / (fc / 3e8) # E.g. at 3 m/s & 3.5 GHz, max Doppler = 37 Hz
+ 
 print(f"Generating stochastic data for {model}...")
 ch_gen = SionnaChannelGenerator(num_prbs=config.n_prbs,
                                 channel_name=model,
@@ -218,12 +223,12 @@ ch_gen = SionnaChannelGenerator(num_prbs=config.n_prbs,
                                 n_tx=config.n_tx,
                                 normalize=False,
                                 seed=config.seed,
-                                ue_speed=3, # [m/s]
+                                ue_speed=speed, # [m/s]
                                 delay_spread=300e-9, # [s]
-                                frequency=3.5e9, # [Hz]
+                                frequency=fc, # [Hz]
                                 subcarrier_spacing=15e3) # [Hz]
 
-# E.g. at 3 m/s & 3.5 GHz, max Doppler shift = 37 Hz
+
 
 #%% [SIONNA ENV] Generate channel data
 
@@ -298,7 +303,6 @@ H2 = np.concatenate([H2.real, H2.imag], axis=2)
 print(f"H2.shape: {H2.shape}") # (batch_size, sequence_length, 2*features)
 
 # Add noise
-SNR = 20 # [dB]
 noise_var = 10**(-SNR/10)
 noise = np.random.randn(*H2.shape) * np.sqrt(noise_var)
 H_noisy = H2 + noise
