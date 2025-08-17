@@ -62,6 +62,8 @@ class SionnaChannelGenerator(tf.keras.Model):
         self.delay_spread = delay_spread # Nominal delay spread [s]
         self.ue_speed = ue_speed        # User speed [m/s]
         self.n_ue = n_ue
+        self.subcarrier_spacing = subcarrier_spacing # [Hz]
+        # self.numerology = (subcarrier_spacing/15e3)-1 # 15, 30, 60, 120 kHz
 
         self.ue_array = sionna.channel.tr38901.PanelArray(
             num_rows_per_panel=1,
