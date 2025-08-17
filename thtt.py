@@ -213,7 +213,7 @@ print(df.to_string())
 #%% [PYTORCH ENV] Compare pre-trained vs non-pre-trained models
 
 # Configuration
-data_percents = [1, 5, 10, 20, 40, 60, 80]  # Percentages of training data to use
+data_percents = [1, 5, ]#10, 20, 40, 60, 80]  # Percentages of training data to use
 models = ['asu_campus_3p5', 'city_0_newyork_3p5', 'CDL-C', 'UMa']
 base_model = models[0]  # Model to train from scratch
 pretrained_models = models[1:]  # Models to use for pre-training
@@ -234,6 +234,7 @@ n_train_total = int(n_samples * max(data_percents) / 100)
 # Create fixed test set indices
 np.random.seed(42)  # Use fixed seed for reproducibility
 all_indices = np.random.permutation(n_samples)
+test_indices = all_indices[n_train_total:]
 
 # Prepare test data for all models
 test_data = data_matrices[base_model][test_indices]
@@ -249,10 +250,6 @@ for perc_idx, data_percent in enumerate(data_percents):
     # Calculate number of training samples for this percentage
     n_train = int(n_train_total * data_percent / 100)
     train_indices = all_indices[:n_train]
-    test_indices = all_indices[n_train:]
-    # max_test_size = int(max(data_percents)/100*n_samples)
-    # test_indices = all_indices[max_test_size:]
-    # Test size: keep same size throughout (set to min size), or adapt it
 
     # Prepare training data
     train_data = data_matrices[base_model][train_indices]
