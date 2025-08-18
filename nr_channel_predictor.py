@@ -152,7 +152,8 @@ class ChannelPredictorManager:
 
         return train_loader, x_valid_tensor, y_valid_tensor
 
-    def train(self, train_loader, x_valid_tensor, y_valid_tensor, num_epochs=10, patience=30):
+    def train(self, train_loader, x_valid_tensor, y_valid_tensor, num_epochs=10,
+              patience=30, patience_factor=1.0):
         """
         Trains the GRU neural network model.
 
@@ -208,7 +209,7 @@ class ChannelPredictorManager:
                       f'Time Elapsed: {elapsed_time:.2f} s')
 
             # Update best validation loss for early stopping
-            if avg_val_loss < best_val_loss * 0.99:
+            if avg_val_loss < best_val_loss * patience_factor:
                 best_val_loss = avg_val_loss
                 epochs_since_improvement = 0
             else:
