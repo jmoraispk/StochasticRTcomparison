@@ -275,7 +275,7 @@ for perc_idx, data_percent in enumerate(data_percents):
         # Create config for fine-tuning (load from previous pre-training)
         finetune_config = new_base_config.for_finetuning(
             source_model=pretrained_model,
-            num_epochs=15,  # Adjust as needed
+            num_epochs=30,  # Adjust as needed
         )
         
         # Fine-tune model
