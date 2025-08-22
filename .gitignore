@@ -15,6 +15,6 @@ channel_experiment*
 old/
 ch_pred_data/*
 ch_pred_models/*
-results/
+results*/
 matlab_examples/
 ChPredMATLABExample/
