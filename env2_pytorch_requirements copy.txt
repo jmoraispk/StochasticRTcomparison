@@ -1,9 +1,5 @@
 ipykernel
 jupyter
-
-# pandas
-# scipy==1.15.1
-# sionna==0.19.1
 scikit-learn
 einops
 uv==0.6.16
