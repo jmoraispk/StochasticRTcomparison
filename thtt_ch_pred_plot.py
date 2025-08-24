@@ -22,3 +22,5 @@ def plot_iq_from_H(H: np.ndarray, sample_idx: int | None = None, rx_idx: int | N
     plt.legend()
     plt.title("Channel Gain")
     plt.show()
+
+    return i, r  # return sample and rx index
