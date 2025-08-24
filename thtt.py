@@ -30,6 +30,14 @@ models = rt_scens + ch_models
 NT = 32
 NC = 16
 
+def pickle_save(data, path):
+    with open(path, 'wb') as f:
+        pickle.dump(data, f)
+        
+def pickle_load(path):
+    with open(path, 'rb') as f:
+        return pickle.load(f)
+
 #%% [SIONNA ENV] Load and Prepare Data
 
 from data_gen import DataConfig, load_data_matrices
@@ -55,13 +63,11 @@ data_matrices = load_data_matrices(models, data_cfg)
 
 #%% [SIONNA ENV] Save matrices
 os.makedirs(DATA_FOLDER, exist_ok=True)
-with open(MAT_PATH, 'wb') as f:
-    pickle.dump(data_matrices, f)
+pickle_save(data_matrices, MAT_PATH)
 
 #%% [PYTORCH ENV] Load matrices
 
-with open(MAT_PATH, 'rb') as f:
-    data_matrices = pickle.load(f)
+data_matrices = pickle_load(MAT_PATH)
 
 models = list(data_matrices.keys())
 
@@ -213,15 +219,17 @@ print(df.to_string())
 
 #%% [PYTORCH ENV] Compare pre-trained vs non-pre-trained models
 
+results_folder = './results3'
 # Configuration
-data_percents = [1, 5, 10, 30, 60, 90]  # Percentages of training data to use
+data_percents = [1, 5, 10, 40, 80]  # Percentages of training data to use
 models = ['asu_campus_3p5', 'city_0_newyork_3p5', 'CDL-C', 'UMa']
 base_model = models[0]  # Model to train from scratch
 pretrained_models = models[1:]  # Models to use for pre-training
 
 # Pre-train models (ONLY if not done before)
-new_base_config = base_config.clone(dataset_main_folder='channel_experiment_all_percentages')
+new_base_config = base_config.clone(dataset_main_folder='channel_experiment_all_percentages2')
 pre_train = False
+overwrite = False
 if pre_train:
     data_matrices_to_pre_train = {model: data_matrices[model] for model in pretrained_models}
     all_res = train_models(data_matrices_to_pre_train, new_base_config)
@@ -244,9 +252,15 @@ test_data = data_matrices[base_model][test_indices]
 results_matrix = np.zeros((len(data_percents), len(models)))
 results_matrix_db = np.zeros_like(results_matrix)
 
+os.makedirs(results_folder, exist_ok=True)
+
 # For each data percentage
 for perc_idx, data_percent in enumerate(data_percents):
     print(f"\nTraining with {data_percent}% of data...")
+    matrix_path = results_folder + f'/pretraining_results_{data_percent}%.npy'
+    if os.path.exists(matrix_path) and not overwrite:
+        print(f"Results for {data_percent}% training data already exist")
+        continue
     
     # Calculate number of training samples for this percentage
     n_train = int(n_train_total * data_percent / 100)
@@ -275,7 +289,7 @@ for perc_idx, data_percent in enumerate(data_percents):
         # Create config for fine-tuning (load from previous pre-training)
         finetune_config = new_base_config.for_finetuning(
             source_model=pretrained_model,
-            num_epochs=30,  # Adjust as needed
+            num_epochs=15,  # Adjust as needed
         )
         
         # Fine-tune model
@@ -300,6 +314,16 @@ for perc_idx, data_percent in enumerate(data_percents):
     for i, model in enumerate(pretrained_models):
         print(f"Pre-trained {model}: {results_matrix_db[perc_idx, i + 1]:.1f} dB")
     
+    # Save results matrix for this percentage
+    np.save(matrix_path, results_matrix_db)
+
+#%% [PYTORCH ENV] Plot results matrix
+
+# Gather all result matrices
+results_matrix_db = np.zeros((len(data_percents), len(models)))
+for perc_idx, data_percent in enumerate(data_percents):
+    mat = np.load(results_folder + f'/pretraining_results_{data_percent}%.npy')
+    results_matrix_db[perc_idx] = mat[perc_idx]
 
 # Print final results table
 print("\nFinal Results (NMSE in dB):")
@@ -312,8 +336,8 @@ df = pd.DataFrame(
 print(df.round(1).to_string())
 
 # Save results matrix
-os.makedirs('./results', exist_ok=True)
-np.save('./results/pretraining_results.npy', results_matrix_db)
+os.makedirs(results_folder, exist_ok=True)
+np.save(results_folder + '/pretraining_results.npy', results_matrix_db)
 
 #%% Plot results for publication
 
@@ -325,7 +349,7 @@ plot_pretraining_comparison(
     x_values=data_percents,
     results_matrix_db=results_matrix_db,
     models=[base_model] + pretrained_models,
-    save_path='./results',
+    save_path=results_folder,
     plot_type='performance',
     x_label='Training Data (%)'
 )
@@ -335,7 +359,7 @@ plot_pretraining_comparison(
     x_values=n_points,
     results_matrix_db=results_matrix_db,
     models=[base_model] + pretrained_models,
-    save_path='./results/with_datapoints',
+    save_path=results_folder + '/with_datapoints',
     plot_type='performance',
     x_label='Number of Training Samples'
 )
@@ -345,7 +369,7 @@ plot_pretraining_comparison(
     x_values=data_percents,
     results_matrix_db=results_matrix_db,
     models=[base_model] + pretrained_models,
-    save_path='./results',
+    save_path=results_folder,
     plot_type='gain',
     x_label='Training Data (%)'
 )
@@ -355,9 +379,32 @@ plot_pretraining_comparison(
     x_values=n_points,
     results_matrix_db=results_matrix_db,
     models=[base_model] + pretrained_models,
-    save_path='./results/with_datapoints',
+    save_path=results_folder + '/with_datapoints',
     plot_type='gain',
     x_label='Number of Training Samples'
 )
+
+#%%
+
+# Plot gain comparison with percentages
+plot_pretraining_comparison(
+    x_values=data_percents,
+    results_matrix_db=-results_matrix_db,
+    models=[base_model] + pretrained_models,
+    save_path=results_folder,
+    plot_type='gain',
+    x_label='Training Data (%)'
+)
+
+# Plot gain comparison with datapoints
+plot_pretraining_comparison(
+    x_values=n_points,
+    results_matrix_db=-results_matrix_db,
+    models=[base_model] + pretrained_models,
+    save_path=results_folder + '/with_datapoints',
+    plot_type='gain',
+    x_label='Number of Training Samples'
+)
+
 
 # %%
