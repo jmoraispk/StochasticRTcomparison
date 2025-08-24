@@ -6,10 +6,13 @@ import matplotlib.pyplot as plt
 
 import deepmimo as dm
 
+# To plot H for specific antennas (uses only matplotlib)
+from thtt_ch_pred_plot import plot_iq_from_H
+
 NT = 2
 NR = 1
 
-SNR = 20 # [dB]
+SNR = 150 # [dB] NOTE: for RT, normalization must be consistent for w & w/o noise
 MAX_DOOPLER = 40 # [Hz]
 
 def db(x):
@@ -134,7 +137,7 @@ plt.show()
 #%% [ANY ENV] Creating ray tracing data for Channel Prediction
 
 # Split all sequences in _ LENGTH
-L = 30
+L = 95
 all_trimmed_seqs = []
 for seq in all_seqs:
     for i in range(len(seq) - L + 1): # ignores sequences shorter than L
@@ -144,7 +147,7 @@ all_seqs_mat_t = np.array(all_trimmed_seqs)
 print(f"all_seqs_mat_t.shape: {all_seqs_mat_t.shape}")
 
 # sample N sequences from all_trimmed_seqs_mat
-N = 100_000
+N = min(100_000, len(all_seqs_mat_t))
 idxs = np.random.choice(len(all_seqs_mat_t), N, replace=False)
 all_seqs_mat_t2 = all_seqs_mat_t[idxs]
 print(f"all_seqs_mat_t2.shape: {all_seqs_mat_t2.shape}")
@@ -156,6 +159,10 @@ ch_params.ue_antenna.shape = [NR, 1]
 dataset.set_doppler(MAX_DOOPLER)
 H = dataset.compute_channels(ch_params)
 print(f"H.shape: {H.shape}")
+
+# Take sequences right away (even if some data may repeat - may happen for short sequences)
+
+
 
 # Concatenate feature dimensions (rx ant, tx ant, subcarriers)
 H2 = H.reshape(H.shape[0], -1)
@@ -171,8 +178,9 @@ noise = np.random.randn(*H2.shape) * np.sqrt(noise_var)
 H_noisy = H2 + noise
 
 # Normalize (min-max)
-H_noisy_norm = H_noisy / np.abs(H_noisy).max()
-H_norm = H2 / np.abs(H2).max()
+h_max = np.nanmax(H_noisy)  # Note: for SNR < 100, max h_norm != max(h_noisy)
+H_noisy_norm = H_noisy / h_max
+H_norm = H2 / h_max
 print(f"H_norm.shape: {H_norm.shape}") # (batch_size, features)
 print(f"H_noisy_norm.shape: {H_noisy_norm.shape}") # (batch_size, features)
 
@@ -200,13 +208,13 @@ data_cfg = DataConfig(
     n_prbs = 20,
     n_rx = NR,
     n_tx = NT, 
-    n_time_steps = 10 + 100, # 55 for input, 100 for output
+    n_time_steps = 55 + 40, # 55 for input, 100 for output
     samp_freq = 1e3,
     batch_size = 100,
     seed = 42
 )
 
-model = 'UMa'
+model = 'TDL-A'
 config = data_cfg
 
 fc = 3.5e9 # [Hz]
@@ -282,10 +290,8 @@ for i in pbar:
 
 print(f"H.shape: {H.shape}")
 
-# Plot H for specific antennas
-from thtt_ch_pred_plot import plot_iq_from_H
-
-plot_iq_from_H(H)
+# Plot H for specific antennas 
+plot_sample_idx, plot_rx_idx = plot_iq_from_H(H)
 
 # Merge antenna dimensions
 H2 = H.reshape(H.shape[0], -1, H.shape[-1])
@@ -305,11 +311,12 @@ noise = np.random.randn(*H2.shape) * np.sqrt(noise_var)
 H_noisy = H2 + noise
 
 # Normalize (min-max)
-h_min = H_noisy.min()
-h_max = H_noisy.max()
-H_noisy_norm = (H_noisy) / (h_max - h_min)
-H_norm = (H2) / (h_max - h_min)
+h_max = np.nanmax(H_noisy)
+H_noisy_norm = H_noisy / h_max
+H_norm = H2 / h_max
 print(f"H_noisy_norm.shape: {H_noisy_norm.shape}")
+
+plot_iq_from_H(H / h_max, plot_sample_idx, plot_rx_idx)
 
 # NOTE: either normalize just range (no shift): x = x / (x_max - x_min)
 #       or normalize range and shift: x = (x - x_min) / (x_max - x_min)
