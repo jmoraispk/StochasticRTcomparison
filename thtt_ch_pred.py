@@ -12,7 +12,7 @@ from thtt_ch_pred_plot import plot_iq_from_H
 NT = 2
 NR = 1
 
-SNR = 150 # [dB] NOTE: for RT, normalization must be consistent for w & w/o noise
+SNR = 250 # [dB] NOTE: for RT, normalization must be consistent for w & w/o noise
 MAX_DOOPLER = 40 # [Hz]
 
 def db(x):
@@ -28,12 +28,12 @@ def nmse(pred, target):
 
 #%% [ANY ENV] Load data
 
-# matrices = ['rx_pos', 'tx_pos', 'aoa_az', 'aod_az', 'aoa_el', 'aod_el', 
-#             'delay', 'power', 'phase', 'inter']
-essential_matrices = ['rx_pos', 'aoa_az', 'inter']
+matrices = ['rx_pos', 'tx_pos', 'aoa_az', 'aod_az', 'aoa_el', 'aod_el', 
+            'delay', 'power', 'phase', 'inter']
+# essential_matrices = ['rx_pos', 'aoa_az', 'inter']
 
-# dataset = dm.load('asu_campus_3p5_10cm', matrices=essential_matrices)
-dataset = dm.load('asu_campus_3p5')#, matrices=essential_matrices)
+dataset = dm.load('asu_campus_3p5_10cm', matrices=matrices)
+# dataset = dm.load('asu_campus_3p5')#, matrices=essential_matrices)
 
 #%% [ANY ENV] Generate all linear sequences in a scenario
 
@@ -152,6 +152,8 @@ idxs = np.random.choice(len(all_seqs_mat_t), N, replace=False)
 all_seqs_mat_t2 = all_seqs_mat_t[idxs]
 print(f"all_seqs_mat_t2.shape: {all_seqs_mat_t2.shape}")
 
+# TODO: compute channels only for users in all_seqs_mat_t2
+
 # Create channels
 ch_params = dm.ChannelParameters()
 ch_params.bs_antenna.shape = [NT, 1]
@@ -160,41 +162,44 @@ dataset.set_doppler(MAX_DOOPLER)
 H = dataset.compute_channels(ch_params)
 print(f"H.shape: {H.shape}")
 
-# Take sequences right away (even if some data may repeat - may happen for short sequences)
+# Take sequences right away (some data may repeat, particularily for short sequences)
 
+H_seq = H[all_seqs_mat_t2, ...]
+print(f"H_seq.shape: {H_seq.shape}") # (n_samples, seq_len, n_rx_ant, n_tx_ant, subcarriers)
 
+# Plot H - transform to fit: (n_samples, n_rx_ant, n_tx_ant, seq_len)
+H_3_plot = np.transpose(H_seq[:, :, :, :, 0], (0, 2, 3, 1))
+plot_sample_idx, plot_rx_idx = plot_iq_from_H(H_3_plot)
 
 # Concatenate feature dimensions (rx ant, tx ant, subcarriers)
-H2 = H.reshape(H.shape[0], -1)
-print(f"H2.shape: {H2.shape}") # (batch_size, features)
+H2 = H_seq.reshape(H_seq.shape[0], H_seq.shape[1], -1)
+print(f"H2.shape: {H2.shape}") # (n_samples, seq_len, features = n_rx_ant * n_tx_ant * subcarriers)
 
 # Make Real by putting IQ into the features
-H2 = np.concatenate([H2.real, H2.imag], axis=-1)
-print(f"H2.shape: {H2.shape}") # (batch_size, 2*features)
+H3 = np.concatenate([H2.real, H2.imag], axis=-1)
+print(f"H3.shape: {H3.shape}") # (n_samples, seq_len, 2*features)
 
 # Add noise
 noise_var = 10**(-SNR/10)
-noise = np.random.randn(*H2.shape) * np.sqrt(noise_var)
-H_noisy = H2 + noise
+noise = np.random.randn(*H3.shape) * np.sqrt(noise_var)
+H_noisy = H3 + noise
 
-# Normalize (min-max)
+# Normalize (take abs to account for negative values - not because of IQ)
 h_max = np.nanmax(np.abs(H_noisy))  # Note: for SNR < 100, max h_norm != max(h_noisy)
 H_noisy_norm = H_noisy / h_max
-H_norm = H2 / h_max
-print(f"H_norm.shape: {H_norm.shape}") # (batch_size, features)
-print(f"H_noisy_norm.shape: {H_noisy_norm.shape}") # (batch_size, features)
+H_norm = H3 / h_max
+print(f"H_norm.shape: {H_norm.shape}") # (n_samples, features)
+print(f"H_noisy_norm.shape: {H_noisy_norm.shape}") # (n_samples, features)
 
-# Apply sequences in all_seqs_mat_t (to generate time dimensions)
-H_norm_seq = H_norm[all_seqs_mat_t2, :].astype(np.float32)
-H_noisy_norm_seq = H_noisy_norm[all_seqs_mat_t2, :].astype(np.float32)
-print(f"H_norm_seq.shape: {H_norm_seq.shape}") # (batch_size, seq_len, features)
+# Plot normalized version
+plot_iq_from_H(H_3_plot / h_max, plot_sample_idx, plot_rx_idx)
 
 # Save data
 model = 'asu_campus_3p5'
 folder = 'ch_pred_data'
 os.makedirs(folder, exist_ok=True)
-np.save(f'{folder}/H_norm_{model}.npy', H_norm_seq)
-np.save(f'{folder}/H_noisy_norm_{model}.npy', H_noisy_norm_seq)
+np.save(f'{folder}/H_norm_{model}.npy', H_norm.astype(np.float32))
+np.save(f'{folder}/H_noisy_norm_{model}.npy', H_noisy_norm.astype(np.float32))
 
 #%% [SIONNA ENV] Import and Create Data Generator
 
@@ -214,7 +219,7 @@ data_cfg = DataConfig(
     seed = 42
 )
 
-model = 'TDL-A'
+model = 'UMa'
 config = data_cfg
 
 fc = 3.5e9 # [Hz]
@@ -295,15 +300,15 @@ plot_sample_idx, plot_rx_idx = plot_iq_from_H(H)
 
 # Merge antenna dimensions
 H2 = H.reshape(H.shape[0], -1, H.shape[-1])
-print(f"H2.shape: {H2.shape}") # (batch, n_rx_ant * n_tx_ant, seq_len)
+print(f"H2.shape: {H2.shape}") # (n_samples, n_rx_ant * n_tx_ant, seq_len)
 
 # Put features in the last dimension
 H2 = H2.swapaxes(1, 2)
-print(f"H2.shape: {H2.shape}") # (batch_size, sequence_length, features)
+print(f"H2.shape: {H2.shape}") # (n_samples, sequence_length, features)
 
 # Make Real by putting IQ into the features
 H2 = np.concatenate([H2.real, H2.imag], axis=2)
-print(f"H2.shape: {H2.shape}") # (batch_size, sequence_length, 2*features)
+print(f"H2.shape: {H2.shape}") # (n_samples, sequence_length, 2*features)
 
 # Add noise
 noise_var = 10**(-SNR/10)
@@ -392,12 +397,12 @@ def split_data(H_norm: np.ndarray, train_ratio: float = 0.9,
 models_folder = 'ch_pred_models'
 os.makedirs(models_folder, exist_ok=True)
 
-# models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5']
+models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5']
 # models = ['TDL-A', 'CDL-C', 'UMa']
 # models = ['asu_campus_3p5']
-models = ['TDL-A']
+# models = ['TDL-A']
 
-horizons = [1, 3, 5, 10, 20]#, 30, 40]
+horizons = [1, 3, 5, 10, 20, 40]
 L = 40  # input sequence length
 
 val_loss_per_horizon_gru = {model: [] for model in models}
@@ -408,6 +413,12 @@ for model in models:
 
     for horizon in horizons:
         print(f"========== Horizon: {horizon} ==========")
+
+        model_weights_file = f'{models_folder}/{model}_{horizon}.pth'
+        if os.path.exists(model_weights_file):
+            print(f"Model weights file {model_weights_file} already exists. Skipping training.")
+            continue
+
         x_train, y_train, x_val, y_val = split_data(H_norm, l_in=L, l_gap=horizon)
 
         ch_pred_model = construct_model(NT, hidden_size=128, num_layers=2)
@@ -419,7 +430,7 @@ for model in models:
                 initial_learning_rate=1e-4, batch_size=64, num_epochs=280, 
                 verbose=True, patience=30, patience_factor=1)
 
-        save_model_weights(trained_model, f'{models_folder}/{model}_{horizon}.pth')
+        save_model_weights(trained_model, model_weights_file)
 
         # Plot training and validation loss
         plt.plot(db(tr_loss), label='Training')
