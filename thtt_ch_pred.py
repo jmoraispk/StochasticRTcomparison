@@ -178,7 +178,7 @@ noise = np.random.randn(*H2.shape) * np.sqrt(noise_var)
 H_noisy = H2 + noise
 
 # Normalize (min-max)
-h_max = np.nanmax(H_noisy)  # Note: for SNR < 100, max h_norm != max(h_noisy)
+h_max = np.nanmax(np.abs(H_noisy))  # Note: for SNR < 100, max h_norm != max(h_noisy)
 H_noisy_norm = H_noisy / h_max
 H_norm = H2 / h_max
 print(f"H_norm.shape: {H_norm.shape}") # (batch_size, features)
@@ -310,8 +310,8 @@ noise_var = 10**(-SNR/10)
 noise = np.random.randn(*H2.shape) * np.sqrt(noise_var)
 H_noisy = H2 + noise
 
-# Normalize (min-max)
-h_max = np.nanmax(H_noisy)
+# Normalize
+h_max = np.nanmax(np.abs(H_noisy))
 H_noisy_norm = H_noisy / h_max
 H_norm = H2 / h_max
 print(f"H_noisy_norm.shape: {H_noisy_norm.shape}")
