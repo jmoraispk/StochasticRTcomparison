@@ -402,7 +402,7 @@ models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5']
 # models = ['asu_campus_3p5']
 # models = ['TDL-A']
 
-horizons = [1, 3, 5, 10, 20, 40]
+horizons = [3]
 L = 40  # input sequence length
 
 val_loss_per_horizon_gru = {model: [] for model in models}
@@ -415,9 +415,9 @@ for model in models:
         print(f"========== Horizon: {horizon} ==========")
 
         model_weights_file = f'{models_folder}/{model}_{horizon}.pth'
-        if os.path.exists(model_weights_file):
-            print(f"Model weights file {model_weights_file} already exists. Skipping training.")
-            continue
+        # if os.path.exists(model_weights_file):
+        #     print(f"Model weights file {model_weights_file} already exists. Skipping training.")
+        #     continue
 
         x_train, y_train, x_val, y_val = split_data(H_norm, l_in=L, l_gap=horizon)
 
@@ -427,8 +427,8 @@ for model in models:
 
         trained_model, tr_loss, val_loss, elapsed_time = \
             train(ch_pred_model, x_train, y_train, x_val, y_val, 
-                initial_learning_rate=1e-4, batch_size=64, num_epochs=280, 
-                verbose=True, patience=30, patience_factor=1)
+                initial_learning_rate=1e-4, batch_size=64, num_epochs=1500, 
+                verbose=True, patience=400, patience_factor=1)
 
         save_model_weights(trained_model, model_weights_file)
 
@@ -448,16 +448,23 @@ for model in models:
         val_loss_per_horizon_gru[model].append(db(min(val_loss)))
         # TODO: make sure the best model is saved, not the last one
         val_loss_per_horizon_sh[model].append(db(sh_loss))
+        
+        print(f"Final validation loss for {model} horizon {horizon} ms:")
+        print(f"  GRU: {db(min(val_loss)):.1f} dB")
+        print(f"  S&H: {db(sh_loss):.1f} dB")
+
+            
 
 #%%
 o = 0
 plt.figure(dpi=200)
-colors = ['red', 'blue', 'green', 'purple']
+colors = ['#E41A1C', '#377EB8', '#4DAF4A', '#984EA3']  # Colorblind-friendly palette
+markers = ['o', 's', 'D', 'P']
 for i, model in enumerate(models):
     plt.plot(horizons[o:], val_loss_per_horizon_gru[model][o:], label=model, 
-             color=colors[i], marker='o', markersize=3)
+             color=colors[i], marker=markers[i], markersize=5)
     plt.plot(horizons[o:], val_loss_per_horizon_sh[model][o:], label=model + '_SH', 
-             color=colors[i], linestyle='--', marker='o', markersize=3)
+             color=colors[i], linestyle='--', marker=markers[i], markersize=5)
 plt.xlabel('Horizon (ms)')
 plt.ylabel('Validation Loss (NMSE in dB)')
 plt.legend(ncols=4, bbox_to_anchor=(0.46, 1.0), loc='lower center')
