@@ -406,6 +406,7 @@ horizons = [1, 3, 5, 10, 20, 40]
 L = 10  # input sequence length
 
 val_loss_per_horizon_gru = {model: [] for model in models}
+val_loss_per_horizon_gru_best = {model: [] for model in models}
 val_loss_per_horizon_sh = {model: [] for model in models}
 
 for model in models:
@@ -447,12 +448,13 @@ for model in models:
         # sample & hold baseline (i.e. no prediction)
         sh_loss = nmse(x_val[:, -1], y_val)
 
-        val_loss_per_horizon_gru[model].append(db(min(val_loss)))
-        # TODO: make sure the best model is saved, not the last one
+        val_loss_per_horizon_gru[model].append(db(val_loss[-1]))
+        val_loss_per_horizon_gru_best[model].append(db(min(val_loss)))
         val_loss_per_horizon_sh[model].append(db(sh_loss))
         
         print(f"Final validation loss for {model} horizon {horizon} ms:")
-        print(f"  GRU: {db(min(val_loss)):.1f} dB")
+        print(f"  GRU: {db(val_loss[-1]):.1f} dB")
+        print(f"  GRU best: {db(min(val_loss)):.1f} dB")
         print(f"  S&H: {db(sh_loss):.1f} dB")
 
             
@@ -466,6 +468,8 @@ markers = ['o', 's', 'D', 'P']
 for i, model in enumerate(models):
     plt.plot(horizons[o:], val_loss_per_horizon_gru[model][o:], label=model, 
              color=colors[i], marker=markers[i], markersize=5)
+    plt.plot(horizons[o:], val_loss_per_horizon_gru_best[model][o:], label=model + '_best', 
+             color=colors[i], linestyle='-.', marker=markers[i], markersize=5)
     plt.plot(horizons[o:], val_loss_per_horizon_sh[model][o:], label=model + '_SH', 
              color=colors[i], linestyle='--', marker=markers[i], markersize=5)
 plt.xlabel('Horizon (ms)')
