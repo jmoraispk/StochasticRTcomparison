@@ -394,7 +394,7 @@ def split_data(H_norm: np.ndarray, train_ratio: float = 0.9,
 
 #%% [PYTORCH ENVIRONMENT] Train models
 
-models_folder = 'ch_pred_models'
+models_folder = 'ch_pred_models2'
 os.makedirs(models_folder, exist_ok=True)
 
 models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5']
@@ -402,8 +402,8 @@ models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5']
 # models = ['asu_campus_3p5']
 # models = ['TDL-A']
 
-horizons = [3]
-L = 40  # input sequence length
+horizons = [1, 3, 5, 10, 20, 40]
+L = 10  # input sequence length
 
 val_loss_per_horizon_gru = {model: [] for model in models}
 val_loss_per_horizon_sh = {model: [] for model in models}
@@ -427,8 +427,8 @@ for model in models:
 
         trained_model, tr_loss, val_loss, elapsed_time = \
             train(ch_pred_model, x_train, y_train, x_val, y_val, 
-                initial_learning_rate=1e-4, batch_size=64, num_epochs=1500, 
-                verbose=True, patience=400, patience_factor=1)
+                initial_learning_rate=1e-4, batch_size=64, num_epochs=280, 
+                verbose=True, patience=30, patience_factor=1)
 
         save_model_weights(trained_model, model_weights_file)
 
@@ -440,7 +440,8 @@ for model in models:
         plt.title(f'Training and validation loss for {model} horizon {horizon} ms')
         plt.legend()
         plt.grid()
-        plt.show()
+        plt.savefig(f'{models_folder}/{model}_{horizon}_loss.png', bbox_inches='tight', dpi=200)
+        plt.close()
         
         # sample & hold baseline (i.e. no prediction)
         sh_loss = nmse(x_val[:, -1], y_val)
@@ -480,7 +481,150 @@ plt.show()
 # 2. CDL has ant. corr. but needs the antenna structure, and has little variation
 # 3. UMa has both antenna correlation (via antenna array) and variation
 
-# %%
+#%% Load models and test them on other datasets
 
-# fileName = save_model_weights(chanPredictor, modelFileName)
-# model = load_model_weights(chanPredictor, modelFileName)
+from thtt_plot import plot_test_matrix
+
+# Cross-testing configuration
+models_folder_eval = 'ch_pred_models2'
+
+# Ensure input length L used for evaluation matches training
+# Uses the same L already defined above
+
+
+def build_xy_all(H_norm: np.ndarray, l_in: int, l_gap: int) -> tuple[np.ndarray, np.ndarray]:
+    """Build full x/y for all samples using given input length and gap.
+
+    Returns:
+        x_all: (n_samples, l_in, features)
+        y_all: (n_samples, features)
+    """
+    seq_len = H_norm.shape[1]
+    if l_in is None:
+        l_in = seq_len - l_gap - 1
+    y_idx = l_in + l_gap - 1
+    if l_in <= 0 or l_gap < 0 or (y_idx >= seq_len):
+        raise ValueError("Invalid l_in/l_gap for given sequence length")
+    x_all = H_norm[:, :l_in]
+    y_all = H_norm[:, y_idx]
+    return x_all, y_all
+
+
+def compute_nmse_matrix(models_list: list[str], horizon: int, l_in: int) -> np.ndarray:
+    """Load each trained model and evaluate NMSE on every dataset."""
+    results = np.zeros((len(models_list), len(models_list)), dtype=float)
+
+    for i, src_model in enumerate(models_list):
+        weights_path = f"{models_folder_eval}/{src_model}_{horizon}.pth"
+        print(f"\nLoading model weights: {weights_path}")
+
+        ch_pred_model = construct_model(NT, hidden_size=128, num_layers=2)
+        ch_pred_model = load_model_weights(ch_pred_model, weights_path)
+
+        for j, tgt_model in enumerate(models_list):
+            print(f"Testing {src_model} on {tgt_model} (horizon={horizon})")
+            H_norm_tgt = np.load(f'ch_pred_data/H_norm_{tgt_model}.npy')
+            x_all, y_all = build_xy_all(H_norm_tgt, l_in=l_in, l_gap=horizon)
+
+            # Batched inference to prevent GPU OOM
+            batch_size = 128
+            preds = []
+            for start in range(0, x_all.shape[0], batch_size):
+                end = min(start + batch_size, x_all.shape[0])
+                y_pred_b = predict(ch_pred_model, x_all[start:end])
+                preds.append(y_pred_b)
+            y_pred = np.concatenate(preds, axis=0)
+
+            results[i, j] = nmse(y_pred, y_all)
+
+            print(f"  NMSE: {10*np.log10(results[i, j]):.1f} dB")
+
+    return results
+
+
+# Run cross-testing over all defined models
+results_matrix = compute_nmse_matrix(models, horizon=1, l_in=10)
+
+# Plot confusion matrix (NMSE in dB inside the function)
+plot_test_matrix(results_matrix, models)
+
+#%% (NEEDS TESTING)
+
+# Fine-tuning configuration and utilities
+finetuned_models_folder = 'ch_pred_models_finetuned'
+os.makedirs(finetuned_models_folder, exist_ok=True)
+
+
+def predict_batched(model, x: np.ndarray, batch_size: int = 128) -> np.ndarray:
+    preds = []
+    for start in range(0, x.shape[0], batch_size):
+        end = min(start + batch_size, x.shape[0])
+        preds.append(predict(model, x[start:end]))
+    return np.concatenate(preds, axis=0)
+
+
+def fine_tune_and_test(models_list: list[str], horizon: int, l_in: int,
+                       train_ratio: float = 0.9,
+                       initial_lr: float = 1e-4,
+                       batch_size: int = 64,
+                       num_epochs: int = 80,
+                       patience: int = 15,
+                       patience_factor: float = 1.0) -> np.ndarray:
+    """Fine-tune each source model on every target dataset and evaluate on target.
+
+    Saves weights to finetuned_models_folder as '{src}_to_{tgt}_{horizon}.pth'.
+    Returns an NMSE matrix where [i, j] is the performance of src=i fine-tuned on tgt=j,
+    evaluated on the tgt validation split.
+    """
+    ft_results = np.zeros((len(models_list), len(models_list)), dtype=float)
+
+    for i, src_model in enumerate(models_list):
+        base_weights = f"{models_folder_eval}/{src_model}_{horizon}.pth"
+        print(f"\n[Fine-tune] Using base weights: {base_weights}")
+
+        for j, tgt_model in enumerate(models_list):
+            print(f"Fine-tuning {src_model} -> {tgt_model} (horizon={horizon})")
+
+            # Load target data and split
+            H_norm_tgt = np.load(f'ch_pred_data/H_norm_{tgt_model}.npy')
+            x_train, y_train, x_val, y_val = split_data(H_norm_tgt, train_ratio=train_ratio,
+                                                        l_in=l_in, l_gap=horizon)
+
+            # Load model from base weights
+            model = construct_model(NT, hidden_size=128, num_layers=2)
+            model = load_model_weights(model, base_weights)
+
+            # Train further on target data (fine-tune)
+            model, tr_loss, val_loss, elapsed_time = train(
+                model, x_train, y_train, x_val, y_val,
+                initial_learning_rate=initial_lr,
+                batch_size=batch_size,
+                num_epochs=num_epochs,
+                verbose=True,
+                patience=patience,
+                patience_factor=patience_factor
+            )
+
+            # Save fine-tuned model
+            ft_path = f"{finetuned_models_folder}/{src_model}_to_{tgt_model}_{horizon}.pth"
+            save_model_weights(model, ft_path)
+
+            # Evaluate on validation split (acts as held-out test here)
+            y_pred = predict_batched(model, x_val, batch_size=128)
+            nmse_val = nmse(y_pred, y_val)
+            ft_results[i, j] = nmse_val
+            print(f"  Fine-tuned NMSE on {tgt_model}: {10*np.log10(nmse_val):.1f} dB")
+
+    return ft_results
+
+
+# Run fine-tuning and plot results
+ft_matrix = fine_tune_and_test(models, horizon=1, l_in=10,
+                               train_ratio=0.1,
+                               initial_lr=1e-4,
+                               batch_size=64,
+                               num_epochs=50,
+                               patience=10)
+
+plot_test_matrix(ft_matrix, models)
+
