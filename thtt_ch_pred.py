@@ -428,7 +428,8 @@ for model in models:
         trained_model, tr_loss, val_loss, elapsed_time = \
             train(ch_pred_model, x_train, y_train, x_val, y_val, 
                 initial_learning_rate=1e-4, batch_size=64, num_epochs=280, 
-                verbose=True, patience=30, patience_factor=1)
+                verbose=True, patience=30, patience_factor=1,
+                best_model_path=f'{models_folder}/{model}_{horizon}_best.pth')
 
         save_model_weights(trained_model, model_weights_file)
 
@@ -456,8 +457,9 @@ for model in models:
 
             
 
-#%%
-o = 0
+#%% Plot validation loss per horizon results
+
+o = 0 # index of first horizon to plot (in case we want to start from non-zero)
 plt.figure(dpi=200)
 colors = ['#E41A1C', '#377EB8', '#4DAF4A', '#984EA3']  # Colorblind-friendly palette
 markers = ['o', 's', 'D', 'P']
@@ -472,14 +474,6 @@ plt.legend(ncols=4, bbox_to_anchor=(0.46, 1.0), loc='lower center')
 plt.xlim(0, horizons[-1] + 0.5)
 plt.grid()
 plt.show()
-
-#%%
-
-# NOTES:
-
-# 1. TDL has no antenna correlation (unless we introduce it!)
-# 2. CDL has ant. corr. but needs the antenna structure, and has little variation
-# 3. UMa has both antenna correlation (via antenna array) and variation
 
 #%% Load models and test them on other datasets
 
@@ -548,7 +542,7 @@ results_matrix = compute_nmse_matrix(models, horizon=1, l_in=10)
 # Plot confusion matrix (NMSE in dB inside the function)
 plot_test_matrix(results_matrix, models)
 
-#%% (NEEDS TESTING)
+#%% Fine tuning models & evaluating performance on target datasets
 
 # Fine-tuning configuration and utilities
 finetuned_models_folder = 'ch_pred_models_finetuned'
@@ -602,7 +596,8 @@ def fine_tune_and_test(models_list: list[str], horizon: int, l_in: int,
                 num_epochs=num_epochs,
                 verbose=True,
                 patience=patience,
-                patience_factor=patience_factor
+                patience_factor=patience_factor,
+                best_model_path=f"{finetuned_models_folder}/{src_model}_to_{tgt_model}_{horizon}_best.pth"
             )
 
             # Save fine-tuned model
@@ -624,7 +619,7 @@ ft_matrix = fine_tune_and_test(models, horizon=1, l_in=10,
                                initial_lr=1e-4,
                                batch_size=64,
                                num_epochs=50,
-                               patience=10)
+                               patience=30)
 
 plot_test_matrix(ft_matrix, models)
 

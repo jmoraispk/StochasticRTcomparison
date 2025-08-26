@@ -153,7 +153,7 @@ class ChannelPredictorManager:
         return train_loader, x_valid_tensor, y_valid_tensor
 
     def train(self, train_loader, x_valid_tensor, y_valid_tensor, num_epochs=10,
-              patience=30, patience_factor=1.0):
+              patience=30, patience_factor=1.0, best_model_path: str | None = None):
         """
         Trains the GRU neural network model.
 
@@ -212,6 +212,9 @@ class ChannelPredictorManager:
             if avg_val_loss < best_val_loss * patience_factor:
                 best_val_loss = avg_val_loss
                 epochs_since_improvement = 0
+                # Save best model checkpoint if requested
+                if best_model_path:
+                    torch.save({'model_state_dict': self.model.state_dict()}, best_model_path)
             else:
                 epochs_since_improvement += 1
 
