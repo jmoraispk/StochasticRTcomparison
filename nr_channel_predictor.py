@@ -249,11 +249,21 @@ class ChannelPredictorManager:
         - average_loss: float, the average loss over all batches in the data_loader.
         """
         self.model.eval()
-        total_loss = 0
+        total_loss = 0.0
+        total_count = 0
+        # Use batched evaluation to reduce memory footprint
+        batch_size = 1024
         with torch.no_grad():
-            outputs = self.model(x_valid)
-            total_loss = self.criterion(outputs, y_valid).item()
-        return total_loss
+            num_samples = x_valid.shape[0]
+            for start in range(0, num_samples, batch_size):
+                end = min(start + batch_size, num_samples)
+                outputs = self.model(x_valid[start:end])
+                batch_loss = self.criterion(outputs, y_valid[start:end]).item()
+                batch_count = end - start
+                total_loss += batch_loss * batch_count
+                total_count += batch_count
+        average_loss = total_loss / max(total_count, 1)
+        return average_loss
 
     def predict(self, x: np.ndarray):
         """
