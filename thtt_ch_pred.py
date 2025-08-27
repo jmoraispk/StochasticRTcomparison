@@ -12,6 +12,10 @@ from thtt_ch_pred_plot import plot_iq_from_H
 NT = 2
 NR = 1
 
+N_SAMPLES = 200_000
+DATA_FOLDER = 'ch_pred_data_200k'
+L = 95
+
 SNR = 250 # [dB] NOTE: for RT, normalization must be consistent for w & w/o noise
 MAX_DOOPLER = 40 # [Hz]
 
@@ -114,7 +118,7 @@ def get_all_sequences(dataset: dm.Dataset, min_len: int = 1) -> list[np.ndarray]
 
     return all_seqs
 
-all_seqs = get_all_sequences(dataset, min_len=1)
+all_seqs = get_all_sequences(dataset, min_len=L)
 
 # Print statistics
 seq_lens = [len(seq) for seq in all_seqs]
@@ -137,7 +141,6 @@ plt.show()
 #%% [ANY ENV] Creating ray tracing data for Channel Prediction
 
 # Split all sequences in _ LENGTH
-L = 95
 all_trimmed_seqs = []
 for seq in all_seqs:
     for i in range(len(seq) - L + 1): # ignores sequences shorter than L
@@ -147,7 +150,7 @@ all_seqs_mat_t = np.array(all_trimmed_seqs)
 print(f"all_seqs_mat_t.shape: {all_seqs_mat_t.shape}")
 
 # sample N sequences from all_trimmed_seqs_mat
-N = min(100_000, len(all_seqs_mat_t))
+N = min(N_SAMPLES, len(all_seqs_mat_t))
 idxs = np.random.choice(len(all_seqs_mat_t), N, replace=False)
 all_seqs_mat_t2 = all_seqs_mat_t[idxs]
 print(f"all_seqs_mat_t2.shape: {all_seqs_mat_t2.shape}")
@@ -196,10 +199,9 @@ plot_iq_from_H(H_3_plot / h_max, plot_sample_idx, plot_rx_idx)
 
 # Save data
 model = 'asu_campus_3p5'
-folder = 'ch_pred_data'
-os.makedirs(folder, exist_ok=True)
-np.save(f'{folder}/H_norm_{model}.npy', H_norm.astype(np.float32))
-np.save(f'{folder}/H_noisy_norm_{model}.npy', H_noisy_norm.astype(np.float32))
+os.makedirs(DATA_FOLDER, exist_ok=True)
+np.save(f'{DATA_FOLDER}/H_norm_{model}.npy', H_norm.astype(np.float32))
+np.save(f'{DATA_FOLDER}/H_noisy_norm_{model}.npy', H_noisy_norm.astype(np.float32))
 
 #%% [SIONNA ENV] Import and Create Data Generator
 
@@ -209,17 +211,17 @@ from sionna_ch_gen import SionnaChannelGenerator
 
 # Configure data generation
 data_cfg = DataConfig(
-    n_samples = 100_000,
+    n_samples = N_SAMPLES,
     n_prbs = 20,
     n_rx = NR,
     n_tx = NT, 
-    n_time_steps = 55 + 40, # 55 for input, 100 for output
+    n_time_steps = L, # 55 for input, 100 for output
     samp_freq = 1e3,
     batch_size = 100,
     seed = 42
 )
 
-model = 'UMa'
+model = 'TDL-A'
 config = data_cfg
 
 fc = 3.5e9 # [Hz]
@@ -237,8 +239,6 @@ ch_gen = SionnaChannelGenerator(num_prbs=config.n_prbs,
                                 delay_spread=300e-9, # [s]
                                 frequency=fc, # [Hz]
                                 subcarrier_spacing=15e3) # [Hz]
-
-
 
 #%% [SIONNA ENV] Generate channel data
 
@@ -328,10 +328,9 @@ plot_iq_from_H(H / h_max, plot_sample_idx, plot_rx_idx)
 #       BUT the latter requires a denormalization when computing NMSE
 
 # Save data
-folder = 'ch_pred_data'
-os.makedirs(folder, exist_ok=True)
-np.save(f'{folder}/H_noisy_norm_{model}.npy', H_noisy_norm)
-np.save(f'{folder}/H_norm_{model}.npy', H_norm)
+os.makedirs(DATA_FOLDER, exist_ok=True)
+np.save(f'{DATA_FOLDER}/H_noisy_norm_{model}.npy', H_noisy_norm)
+np.save(f'{DATA_FOLDER}/H_norm_{model}.npy', H_norm)
 
 #%% [PYTORCH ENVIRONMENT] Split data
 
@@ -394,7 +393,7 @@ def split_data(H_norm: np.ndarray, train_ratio: float = 0.9,
 
 #%% [PYTORCH ENVIRONMENT] Train models
 
-models_folder = 'ch_pred_models2'
+models_folder = 'ch_pred_models3'
 os.makedirs(models_folder, exist_ok=True)
 
 models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5']
@@ -403,14 +402,14 @@ models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5']
 # models = ['TDL-A']
 
 horizons = [1, 3, 5, 10, 20, 40]
-L = 10  # input sequence length
+L = 20  # input sequence length
 
 val_loss_per_horizon_gru = {model: [] for model in models}
 val_loss_per_horizon_gru_best = {model: [] for model in models}
 val_loss_per_horizon_sh = {model: [] for model in models}
 
 for model in models:
-    H_norm = np.load(f'ch_pred_data/H_norm_{model}.npy') # (n_samples, seq_len)
+    H_norm = np.load(f'{DATA_FOLDER}/H_norm_{model}.npy') # (n_samples, seq_len)
 
     for horizon in horizons:
         print(f"========== Horizon: {horizon} ==========")
@@ -422,15 +421,15 @@ for model in models:
 
         x_train, y_train, x_val, y_val = split_data(H_norm, l_in=L, l_gap=horizon)
 
-        ch_pred_model = construct_model(NT, hidden_size=128, num_layers=2)
+        ch_pred_model = construct_model(NT, hidden_size=128, num_layers=3) ###################
         
         info(ch_pred_model)
 
         trained_model, tr_loss, val_loss, elapsed_time = \
             train(ch_pred_model, x_train, y_train, x_val, y_val, 
                 initial_learning_rate=1e-4, batch_size=64, num_epochs=280, 
-                verbose=True, patience=30, patience_factor=1,
-                best_model_path=f'{models_folder}/{model}_{horizon}_best.pth')
+                verbose=True, patience=60, patience_factor=1,
+                best_model_path=model_weights_file.replace('.pth', '_best.pth'))
 
         save_model_weights(trained_model, model_weights_file)
 
@@ -457,7 +456,23 @@ for model in models:
         print(f"  GRU best: {db(min(val_loss)):.1f} dB")
         print(f"  S&H: {db(sh_loss):.1f} dB")
 
-            
+# Save validation loss results to CSV
+import pandas as pd
+
+# Create a dictionary to store the results
+results = {'horizon': horizons}
+
+# Add results for each model
+for model in models:
+    results[f'{model}_gru'] = val_loss_per_horizon_gru[model]
+    results[f'{model}_gru_best'] = val_loss_per_horizon_gru_best[model]
+    results[f'{model}_sh'] = val_loss_per_horizon_sh[model]
+
+# Convert to DataFrame and save
+df = pd.DataFrame(results)
+df.to_csv(f'{models_folder}/validation_losses.csv', index=False)
+print(f"Saved validation loss results to {models_folder}/validation_losses.csv")
+
 
 #%% Plot validation loss per horizon results
 
@@ -521,7 +536,7 @@ def compute_nmse_matrix(models_list: list[str], horizon: int, l_in: int) -> np.n
 
         for j, tgt_model in enumerate(models_list):
             print(f"Testing {src_model} on {tgt_model} (horizon={horizon})")
-            H_norm_tgt = np.load(f'ch_pred_data/H_norm_{tgt_model}.npy')
+            H_norm_tgt = np.load(f'{DATA_FOLDER}/H_norm_{tgt_model}.npy')
             x_all, y_all = build_xy_all(H_norm_tgt, l_in=l_in, l_gap=horizon)
 
             # Batched inference to prevent GPU OOM
@@ -584,7 +599,7 @@ def fine_tune_and_test(models_list: list[str], horizon: int, l_in: int,
             print(f"Fine-tuning {src_model} -> {tgt_model} (horizon={horizon})")
 
             # Load target data and split
-            H_norm_tgt = np.load(f'ch_pred_data/H_norm_{tgt_model}.npy')
+            H_norm_tgt = np.load(f'{DATA_FOLDER}/H_norm_{tgt_model}.npy')
             x_train, y_train, x_val, y_val = split_data(H_norm_tgt, train_ratio=train_ratio,
                                                         l_in=l_in, l_gap=horizon)
 
