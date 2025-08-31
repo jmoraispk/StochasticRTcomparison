@@ -73,6 +73,7 @@ models = list(data_matrices.keys())
 
 #%% [PYTORCH ENV] Create Base Configuration
 
+
 from model_config import ModelConfig
 from thtt_utils import train_models, cross_test_models
 from thtt_plot import (plot_training_results, plot_test_matrix, 
@@ -219,9 +220,9 @@ print(df.to_string())
 
 #%% [PYTORCH ENV] Compare pre-trained vs non-pre-trained models
 
-results_folder = './results3'
+results_folder = './results4'
 # Configuration
-data_percents = [1, 5, 10, 40, 80]  # Percentages of training data to use
+data_percents = [0.5, 1, 5, 10, 40, 80]  # Percentages of training data to use
 models = ['asu_campus_3p5', 'city_0_newyork_3p5', 'CDL-C', 'UMa']
 base_model = models[0]  # Model to train from scratch
 pretrained_models = models[1:]  # Models to use for pre-training
@@ -236,8 +237,7 @@ if pre_train:
     plot_training_results(all_res, pretrained_models, title='Pre-training')
 
 # Calculate sizes for train/test split
-samp_per_model = [data_matrices[model].shape[0] for model in models]
-n_samples = min(samp_per_model)  # Use minimum samples across all models
+n_samples = data_matrices[base_model].shape[0]
 n_train_total = int(n_samples * max(data_percents) / 100)
 
 # Create fixed test set indices
@@ -254,76 +254,88 @@ results_matrix_db = np.zeros_like(results_matrix)
 
 os.makedirs(results_folder, exist_ok=True)
 
-# For each data percentage
-for perc_idx, data_percent in enumerate(data_percents):
-    print(f"\nTraining with {data_percent}% of data...")
-    matrix_path = results_folder + f'/pretraining_results_{data_percent}%.npy'
-    if os.path.exists(matrix_path) and not overwrite:
-        print(f"Results for {data_percent}% training data already exist")
-        continue
-    
-    # Calculate number of training samples for this percentage
-    n_train = int(n_train_total * data_percent / 100)
-    train_indices = all_indices[:n_train]
+reps = 10
 
-    # Prepare training data
-    train_data = data_matrices[base_model][train_indices]
-    # Step 1: Train base model from scratch
-    print(f"\nTraining {base_model} from scratch...")
+for rep_idx in range(reps):
+    # For each data percentage
+    for perc_idx, data_percent in enumerate(data_percents):
+        print(f"\nTraining with {data_percent}% of data...")
+        matrix_path = results_folder + f'/pretraining_results_rep_{rep_idx:02d}_{data_percent}%.npy'
+        if os.path.exists(matrix_path) and not overwrite:
+            print(f"Results for {data_percent}% training data already exist")
+            continue
+        
+        # Calculate number of training samples for this percentage
+        n_train = int(n_train_total * data_percent / 100)
+        train_indices = all_indices[:n_train]
 
-    # Train base model
-    base_results = train_models({base_model: train_data}, new_base_config)
-    
-    # Test base model
-    test_results, test_matrix = cross_test_models(
-        {base_model: test_data}, 
-        new_base_config,
-        use_finetuned=False
-    )
-    results_matrix[perc_idx, 0] = test_matrix[0, 0]  # Store base model result
-    
-    # Step 2: Fine-tune each pre-trained model
-    for model_idx, pretrained_model in enumerate(pretrained_models):
-        print(f"\nFine-tuning {pretrained_model} model...")
+        # Prepare training data
+        train_data = data_matrices[base_model][train_indices]
+        # Step 1: Train base model from scratch
+        print(f"\nTraining {base_model} from scratch...")
+
+        # Train base model
+        base_results = train_models({base_model: train_data}, new_base_config)
         
-        # Create config for fine-tuning (load from previous pre-training)
-        finetune_config = new_base_config.for_finetuning(
-            source_model=pretrained_model,
-            num_epochs=15,  # Adjust as needed
-        )
-        
-        # Fine-tune model
-        finetune_results = train_models({base_model: train_data}, finetune_config)
-        
-        # Test fine-tuned model
+        # Test base model
         test_results, test_matrix = cross_test_models(
             {base_model: test_data}, 
-            finetune_config,
-            use_finetuned=True,
-            load_source_from_config=True
+            new_base_config,
+            use_finetuned=False
         )
-        results_matrix[perc_idx, model_idx + 1] = test_matrix[0, 0]
-    
-    # Convert results to dB for this percentage
-    results_matrix_db[perc_idx] = 10 * np.log10(results_matrix[perc_idx])
-    
-    # Print results for this percentage
-    print(f"\nResults for {data_percent}% training data (NMSE in dB):")
-    print("=" * 50)
-    print(f"Base model ({base_model}): {results_matrix_db[perc_idx, 0]:.1f} dB")
-    for i, model in enumerate(pretrained_models):
-        print(f"Pre-trained {model}: {results_matrix_db[perc_idx, i + 1]:.1f} dB")
-    
-    # Save results matrix for this percentage
-    np.save(matrix_path, results_matrix_db)
+        results_matrix[perc_idx, 0] = test_matrix[0, 0]  # Store base model result
+        
+        # Step 2: Fine-tune each pre-trained model
+        for model_idx, pretrained_model in enumerate(pretrained_models):
+            print(f"\nFine-tuning {pretrained_model} model...")
+            
+            # Create config for fine-tuning (load from previous pre-training)
+            finetune_config = new_base_config.for_finetuning(
+                source_model=pretrained_model,
+                num_epochs=15,  # Adjust as needed
+            )
+            
+            # Fine-tune model
+            finetune_results = train_models({base_model: train_data}, finetune_config)
+            
+            # Test fine-tuned model
+            test_results, test_matrix = cross_test_models(
+                {base_model: test_data}, 
+                finetune_config,
+                use_finetuned=True,
+                load_source_from_config=True
+            )
+            results_matrix[perc_idx, model_idx + 1] = test_matrix[0, 0]
+        
+        # Convert results to dB for this percentage
+        results_matrix_db[perc_idx] = 10 * np.log10(results_matrix[perc_idx])
+        
+        # Print results for this percentage
+        print(f"\nResults for {data_percent}% training data (NMSE in dB):")
+        print("=" * 50)
+        print(f"Base model ({base_model}): {results_matrix_db[perc_idx, 0]:.1f} dB")
+        for i, model in enumerate(pretrained_models):
+            print(f"Pre-trained {model}: {results_matrix_db[perc_idx, i + 1]:.1f} dB")
+        
+        # Save results matrix for this percentage
+        np.save(matrix_path, results_matrix_db)
 
 #%% [PYTORCH ENV] Plot results matrix
 
 # Gather all result matrices
 results_matrix_db = np.zeros((len(data_percents), len(models)))
 for perc_idx, data_percent in enumerate(data_percents):
-    mat = np.load(results_folder + f'/pretraining_results_{data_percent}%.npy')
-    results_matrix_db[perc_idx] = mat[perc_idx]
+    mat_file = results_folder + f'/pretraining_results_{data_percent}%.npy'
+    # mat_file = results_folder + f'/pretraining_results_rep_00_{data_percent}%.npy'
+    if not os.path.exists(mat_file):
+        for rep_idx in range(reps):
+            mat_file = results_folder + f'/pretraining_results_rep_{rep_idx:02d}_{data_percent}%.npy'
+            mat = np.load(mat_file)
+            results_matrix_db[perc_idx] += mat[perc_idx]
+        results_matrix_db[perc_idx] /= reps
+    else:
+        mat = np.load(mat_file)
+        results_matrix_db[perc_idx] = mat[perc_idx]
 
 # Print final results table
 print("\nFinal Results (NMSE in dB):")
