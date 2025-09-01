@@ -19,7 +19,7 @@ def nmse(pred, target):
     """Calculate normalized (by power) MSE between prediction and target."""
     return mse(pred, target) / np.mean(np.abs(target) ** 2)
 
-# SEQUENCING UTILS
+########### SEQUENCING UTILS - to select points in the grid ###########
 
 def get_consecutive_active_segments(dataset: dm.Dataset, idxs: np.ndarray,
                                     min_len: int = 1) -> list[np.ndarray]:
@@ -106,6 +106,109 @@ def make_sequence_video(dataset, folder='sweeps', ffmpeg_fps=60):
         f"{folder}/output_{ffmpeg_fps}fps.mp4"
     ])
 
+########### Data Generation INTERPOLATION - for ray tracing ###########
+
+
+# Make a function that interpolates the path between 2 users
+def interpolate_percentage(array1, array2, percents):
+    """Interpolate between two points at specified percentages.
+    
+    Args:
+        pos1: Starting position/value
+        pos2: Ending position/value
+        percents: Array of percentages between 0 and 1
+        
+    Returns:
+        np.ndarray: Array of interpolated values at given percents
+    """
+    # Ensure percentages are between 0 and 1
+    percents = np.clip(percents, 0, 1)
+
+    # Broadcast to fit shape of interpolated array
+    percents = np.reshape(percents, percents.shape + (1,) * array1.ndim)
+
+    return array1 * (1 - percents) + array2 * percents
+
+
+
+
+def get_all_sequences(dataset: dm.Dataset, min_len: int = 1) -> list[np.ndarray]:
+    """
+    Extract all consecutive active user index sequences from a dataset, 
+    considering both rows and columns of the grid.
+
+    For each row and each column in the dataset grid, this function finds all
+    consecutive segments of active users (with length at least `min_len`) and
+    returns them as a list of index arrays.
+
+    Args:
+        dataset (dm.Dataset): The dataset object, expected to provide grid_size,
+            get_row_idxs, get_col_idxs, and to be compatible with
+            get_consecutive_active_segments.
+        min_len (int, optional): Minimum length of a segment to be included. 
+            Defaults to 1.
+
+    Returns:
+        list[np.ndarray]: List of arrays, each containing indices of a consecutive
+            active user segment (row-wise or column-wise).
+    """
+    n_cols, n_rows = dataset.grid_size
+    all_seqs = []
+    for k in range(n_rows):
+        idxs = dataset.get_row_idxs(k)
+        consecutive_arrays = get_consecutive_active_segments(dataset, idxs, min_len)
+        all_seqs += consecutive_arrays
+
+    for k in range(n_cols):
+        idxs = dataset.get_col_idxs(k)
+        consecutive_arrays = get_consecutive_active_segments(dataset, idxs, min_len)
+        all_seqs += consecutive_arrays
+
+    return all_seqs
+
+
+def expand_to_uniform_sequences(
+    sequences: list[np.ndarray] | np.ndarray,
+    target_len: int,
+    stride: int = 1
+) -> np.ndarray:
+    """
+    Convert a list or array of index sequences into a 2D array of fixed-length windows.
+
+    For each input sequence, this function extracts all possible contiguous subsequences
+    (windows) of length `target_len` using a sliding window with the specified `stride`.
+    Sequences shorter than `target_len` are ignored.
+
+    Args:
+        sequences (list[np.ndarray] | np.ndarray): List of 1D arrays or a 2D array,
+            where each element/row is a sequence of indices.
+        target_len (int): Desired length of each output window.
+        stride (int, optional): Step size for the sliding window. Defaults to 1.
+
+    Returns:
+        np.ndarray: 2D array of shape (n_windows, target_len), where each row is a
+            window of indices from the input sequences. If no windows are found,
+            returns an empty array of shape (0, target_len).
+    """
+    if isinstance(sequences, list):
+        seq_list = [np.asarray(seq, dtype=int) for seq in sequences]
+    else:
+        # sequences is assumed 2D already; convert to list of 1D arrays
+        seq_list = [np.asarray(sequences[i], dtype=int) for i in range(sequences.shape[0])]
+
+    out: list[np.ndarray] = []
+    for seq in seq_list:
+        if len(seq) < target_len:
+            continue
+        for i in range(0, len(seq) - target_len + 1, stride):
+            out.append(seq[i:i+target_len])
+    if len(out) == 0:
+        return np.empty((0, target_len), dtype=int)
+    return np.stack(out, axis=0)
+
+
+
+########### Data Generation POST-PROCESSING - Normalize & Save ###########
 
 def process_and_save_channel(H_complex: np.ndarray,
                              time_axis: int,
@@ -167,6 +270,7 @@ def process_and_save_channel(H_complex: np.ndarray,
 
     return H_norm, H_noisy_norm, h_max
 
+########### Model Training PRE-PROCESSING - Split data ###########
 
 def split_data(H_norm: np.ndarray, train_ratio: float = 0.9, 
                l_in: int | None = None, l_gap: int = 0):

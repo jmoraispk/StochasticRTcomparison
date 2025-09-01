@@ -2,36 +2,33 @@
 [Data generation for channel prediction]
 
 Ray tracing data generation (DeepMIMO):
-- Load data
-- Create all sequences of samples in RT scenario (list of arrays)
-- (optional) Interpolate sequences (list of arrays with K times the length)
-- Create uniform (same length) sequences for Channel Prediction (N seq x L array)
-- Generate channels for all points in the sequences & 
+1. Load data
+2. Create all sequences of samples in RT scenario (list of arrays)
+3. (optional) Interpolate sequences (list of arrays with K times the length)
+4. Create uniform (same length) sequences for Channel Prediction (N seq x L array)
+5. Generate channels for all points in the sequences & 
 
 Stochastic data generation (Sionna):
-- Import and create data generator
-- Generate channel data (N seq x L array)
+1. Import and create data generator
+2. Generate channel data (N seq x L array)
 
 Post-processing (common for ray tracing & stochastic):
-- Reshape to (n_samples, seq_len, features)
-- Concatenate real & imaginary parts (n_samples, seq_len, real_features)
-- Add noise (based on SNR)
-- Normalize (by max absolute value of real features)
-- Save data (if save=True, default)
+1. Reshape to (n_samples, seq_len, features)
+2. Concatenate real & imaginary parts (n_samples, seq_len, real_features)
+3. Add noise (based on SNR)
+4. Normalize (by max absolute value of real features)
+5. Save data (if save=True, default)
 
 """
 
 
-#%% [MANDATORY CONSTANTS - ANY ENV] Imports
+#%% Imports
 
 import numpy as np
 import os
 import matplotlib.pyplot as plt
 
 import deepmimo as dm
-
-# To plot H for specific antennas (uses only matplotlib)
-from thtt_ch_pred_plot import plot_iq_from_H
 
 # To create sequences and videos
 from thtt_ch_pred_utils import (
@@ -41,8 +38,16 @@ from thtt_ch_pred_utils import (
     mse,
     nmse,
     process_and_save_channel,
-    split_data
+    split_data,
+    expand_to_uniform_sequences
 )
+
+# To plot test matrix
+from thtt_plot import plot_test_matrix
+
+# To plot H for specific antennas (uses only matplotlib)
+from thtt_ch_pred_plot import plot_iq_from_H
+
 
 NT = 2
 NR = 1
@@ -54,7 +59,7 @@ L = 95
 SNR = 250 # [dB] NOTE: for RT, normalization must be consistent for w & w/o noise
 MAX_DOOPLER = 40 # [Hz]
 
-#%% [ANY ENV] Ray tracing data generation: Load data
+#%% [ANY ENV] 1. Ray tracing data generation: Load data
 
 matrices = ['rx_pos', 'tx_pos', 'aoa_az', 'aod_az', 'aoa_el', 'aod_el', 
             'delay', 'power', 'phase', 'inter']
@@ -62,11 +67,11 @@ matrices = ['rx_pos', 'tx_pos', 'aoa_az', 'aod_az', 'aoa_el', 'aod_el',
 # dataset = dm.load('asu_campus_3p5_10cm', matrices=matrices)
 dataset = dm.load('asu_campus_3p5', matrices=matrices)
 
-#%% [ANY ENV] Ray tracing data generation: Make video of all sequences
+#%% [ANY ENV] 2. Ray tracing data generation: Make video of all sequences
 
 # make_sequence_video(dataset, folder='sweeps', ffmpeg_fps=60)
 
-#%% [ANY ENV] Ray tracing data generation: Create all sequences
+#%% [ANY ENV] 3. Ray tracing data generation: Create sequences
 
 all_seqs = get_all_sequences(dataset, min_len=L)
 
@@ -88,15 +93,15 @@ plt.title('Distribution of sequence lengths')
 plt.grid()
 plt.show()
 
-#%% [ANY ENV] Ray tracing data generation: Create sequences for Channel Prediction
+#%% [ANY ENV] 4. Ray tracing data generation: Interpolate sequences
 
-# Split all sequences in _ LENGTH
-all_trimmed_seqs = []
-for seq in all_seqs:
-    for i in range(len(seq) - L + 1): # ignores sequences shorter than L
-        all_trimmed_seqs.append(seq[i:i+L])
+# TODO: interpolate sequences
 
-all_seqs_mat_t = np.array(all_trimmed_seqs)
+
+#%% [ANY ENV] 5. Ray tracing data generation: Create sequences for Channel Prediction
+
+# Split all sequences in LENGTH L (output: (n_seqs, L)
+all_seqs_mat_t = expand_to_uniform_sequences(all_seqs, target_len=L, stride=1)
 print(f"all_seqs_mat_t.shape: {all_seqs_mat_t.shape}")
 
 # sample N sequences from all_trimmed_seqs_mat
@@ -124,12 +129,11 @@ H_3_plot = np.transpose(H_seq[:, :, :, :, 0], (0, 2, 3, 1))
 plot_sample_idx, plot_rx_idx = plot_iq_from_H(H_3_plot)
 
 # Unified post-processing and saving
-model = 'asu_campus_3p5'
 H_norm, H_noisy_norm, h_max = process_and_save_channel(
     H_complex=H_seq,
     time_axis=1,
     data_folder=DATA_FOLDER,
-    model=model,
+    model='asu_campus_3p5',
     snr_db=SNR
 )
 
@@ -201,20 +205,7 @@ def channel_sample(batch_size=1000, num_time_steps=10, sampling_frequency=1e3):
     a = a[:, 0, :, 0, :, :, :]  # [batch size, num_rx_ant num_tx_ant, num_paths, num_time_steps]
     t = t[:, 0, 0, :]  # [batch size, num_paths]
 
-    # # Calculate phase shifts and sum along paths
-    # phase_shifts = np.exp(-1j * 2 * np.pi * ch_gen.fc * t)
-    # H = np.sum(a * phase_shifts[:, None, None, :, None], axis=3)
-    
     H = a.sum(axis=3)
-
-    # Calculate frequency-domain response at a chosen subcarrier (non-DC)
-    # fft_size = data_cfg.n_prbs * 12
-    # delta_f = ch_gen.subcarrier_spacing  # [Hz]
-    # k_offset = 1  # first subcarrier offset from DC; adjust if needed
-    # f_k = k_offset * delta_f
-
-    # phase_shifts = np.exp(-1j * 2 * np.pi * f_k * t)  # [batch size, num_paths]
-    # H = np.sum(a * phase_shifts[:, None, None, :, None], axis=3)
 
     return H  # [batch size, num_rx_ant, num_tx_ant, num_time_steps]
 
@@ -355,8 +346,6 @@ plt.grid()
 plt.show()
 
 #%% Load models and test them on other datasets
-
-from thtt_plot import plot_test_matrix
 
 # Cross-testing configuration
 models_folder_eval = 'ch_pred_models2'
@@ -501,83 +490,3 @@ ft_matrix = fine_tune_and_test(models, horizon=1, l_in=10,
                                patience=30)
 
 plot_test_matrix(ft_matrix, models)
-
-
-#%%
-
-
-# Make a function that interpolates the path between 2 users
-def interpolate_percentage(array1, array2, percents):
-    """Interpolate between two points at specified percentages.
-    
-    Args:
-        pos1: Starting position/value
-        pos2: Ending position/value
-        percents: Array of percentages between 0 and 1
-        
-    Returns:
-        np.ndarray: Array of interpolated values at given percents
-    """
-    # Ensure percentages are between 0 and 1
-    percents = np.clip(percents, 0, 1)
-
-    # Broadcast to fit shape of interpolated array
-    percents = np.reshape(percents, percents.shape + (1,) * array1.ndim)
-
-    return array1 * (1 - percents) + array2 * percents
-
-
-
-
-def get_all_sequences(dataset: dm.Dataset, min_len: int = 1) -> list[np.ndarray]:
-    n_cols, n_rows = dataset.grid_size
-    all_seqs = []
-    for k in range(n_rows):
-        idxs = dataset.get_row_idxs(k)
-        consecutive_arrays = get_consecutive_active_segments(dataset, idxs, min_len)
-        all_seqs += consecutive_arrays
-
-    for k in range(n_cols):
-        idxs = dataset.get_col_idxs(k)
-        consecutive_arrays = get_consecutive_active_segments(dataset, idxs, min_len)
-        all_seqs += consecutive_arrays
-
-    return all_seqs
-
-all_seqs = get_all_sequences(dataset, min_len=1)
-
-# Print statistics
-sum_len_seqs = sum([len(seq) for seq in all_seqs])
-avg_len_seqs = sum_len_seqs / len(all_seqs)
-
-print(f"Number of sequences: {len(all_seqs)}")
-print(f"Average length of sequences: {avg_len_seqs:.1f}")
-
-print(f"Number of active users: {len(dataset.get_active_idxs())}")
-print(f"Total length of sequences: {sum_len_seqs}")
-
-def expand_to_uniform_sequences(sequences: list[np.ndarray] | np.ndarray,
-                                target_len: int,
-                                stride: int = 1) -> np.ndarray:
-    """From a list/array of index sequences, return a 2D array of windows of length target_len.
-    Sequences shorter than target_len are dropped. Uses sliding window with given stride.
-    """
-    if isinstance(sequences, list):
-        seq_list = [np.asarray(seq, dtype=int) for seq in sequences]
-    else:
-        # sequences is assumed 2D already; convert to list of 1D arrays
-        seq_list = [np.asarray(sequences[i], dtype=int) for i in range(sequences.shape[0])]
-
-    out: list[np.ndarray] = []
-    for seq in seq_list:
-        if len(seq) < target_len:
-            continue
-        for i in range(0, len(seq) - target_len + 1, stride):
-            out.append(seq[i:i+target_len])
-    if len(out) == 0:
-        return np.empty((0, target_len), dtype=int)
-    return np.stack(out, axis=0)
-
-# Expand to uniform sequences
-all_seqs_mat_t = expand_to_uniform_sequences(all_seqs, target_len=10, stride=1)
-print(f"all_seqs_mat_t.shape: {all_seqs_mat_t.shape}")
