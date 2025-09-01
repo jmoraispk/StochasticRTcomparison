@@ -4,13 +4,15 @@
 Ray tracing data generation (DeepMIMO):
 1. Load data
 2. Create all sequences of samples in RT scenario (list of arrays)
-3. (optional) Interpolate sequences (list of arrays with K times the length)
-4. Create uniform (same length) sequences for Channel Prediction (N seq x L array)
-5. Generate channels for all points in the sequences & 
+3. Create uniform (same length) sequences for Channel Prediction (N seq x L array)
+4. (optional) Interpolate sequences (list of arrays with K times the length)
+5. Generate channels for all points in the sequences
+6. Post-process data (add noise, normalize, save)
 
 Stochastic data generation (Sionna):
 1. Import and create data generator
 2. Generate channel data (N seq x L array)
+6. Post-process data (add noise, normalize, save)
 
 Post-processing (common for ray tracing & stochastic):
 1. Reshape to (n_samples, seq_len, features)
@@ -57,16 +59,16 @@ N_SAMPLES = 200_000
 DATA_FOLDER = 'ch_pred_data_200k'
 L = 95  # 55 for input, 40 for output
 
-# Sequence length for channel prediction
-PRE_INTERP_SEQ_LEN = L if not INTERPOLATE else max(L // INTERP_FACTOR + 1, 2) # min length is 2
-# Note: interpolation will scale the sequence length by INTERP_FACTOR to be >= L
-#       (at least 2 samples needed for interpolation)
-
 SNR = 250 # [dB] NOTE: for RT, normalization must be consistent for w & w/o noise
 MAX_DOOPLER = 40 # [Hz]
 
 INTERPOLATE = True
-INTERP_FACTOR = 10
+INTERP_FACTOR = 100
+
+# Sequence length for channel prediction
+PRE_INTERP_SEQ_LEN = L if not INTERPOLATE else max(L // INTERP_FACTOR + 1, 2) # min length is 2
+# Note: interpolation will scale the sequence length by INTERP_FACTOR to be >= L
+#       (at least 2 samples needed for interpolation)
 
 # RT sample distance / INTERP_FACTOR = sample distance in the interpolated dataset
 
@@ -75,14 +77,14 @@ INTERP_FACTOR = 10
 matrices = ['rx_pos', 'tx_pos', 'aoa_az', 'aod_az', 'aoa_el', 'aod_el', 
             'delay', 'power', 'phase', 'inter']
 
-# dataset = dm.load('asu_campus_3p5_10cm', matrices=matrices)
-dataset = dm.load('asu_campus_3p5', matrices=matrices)
+dataset = dm.load('asu_campus_3p5_10cm', matrices=matrices)
+# dataset = dm.load('asu_campus_3p5', matrices=matrices)
 
-#%% [ANY ENV] 2. Ray tracing data generation: Make video of all sequences
+#%% [ANY ENV] (optional) Ray tracing data: Make video of all sequences
 
 # make_sequence_video(dataset, folder='sweeps', ffmpeg_fps=60)
 
-#%% [ANY ENV] 3. Ray tracing data generation: Create sequences
+#%% [ANY ENV] 2. Ray tracing data generation: Create sequences
 
 all_seqs = get_all_sequences(dataset, min_len=PRE_INTERP_SEQ_LEN)
 
@@ -106,7 +108,7 @@ plt.show()
 
 dataset_ready = dataset
 
-#%% [ANY ENV] 5. Ray tracing data generation: Create sequences for Channel Prediction
+#%% [ANY ENV] 3. Ray tracing data generation: Create sequences for Channel Prediction
 
 # Split all sequences in LENGTH L (output: (n_seqs, L)
 all_seqs_mat_t = expand_to_uniform_sequences(all_seqs, target_len=PRE_INTERP_SEQ_LEN, stride=1)
@@ -115,7 +117,7 @@ print(f"all_seqs_mat_t.shape: {all_seqs_mat_t.shape}")
 # Number of sequences to sample from original sequences
 final_samples = min(N_SAMPLES, len(all_seqs_mat_t))
 idxs = np.random.choice(len(all_seqs_mat_t), final_samples, replace=False)
-all_seqs_mat_t2 = all_seqs_mat_t[idxs][:2000]
+all_seqs_mat_t2 = all_seqs_mat_t[idxs]  # [:2000] # generate less sequences for testing
 print(f"all_seqs_mat_t2.shape: {all_seqs_mat_t2.shape}")
 
 #%% [ANY ENV] 4. Ray tracing data generation: Interpolate sequences
@@ -132,11 +134,10 @@ if INTERPOLATE:
         points_per_segment=INTERP_FACTOR
     )
     print(f"dataset_ready.n_ue: {dataset_ready.n_ue}")
-    tgt_shape = (all_seqs_mat_t2.shape[0], -1, NT, NR, 1)
+    tgt_shape = (all_seqs_mat_t2.shape[0], -1, NR, NT, 1)
 
-#%%
+#%% [ANY ENV] 5. Ray tracing data generation: Generate channels & Process data
 
-# TODO: in case of no interpolation, still compute channels only for necessary users
 # NOTE: when the product seq_len * n_seqs >> n_ue, it's better to generate channels first
 #       and then take the sequences from the generated channels, because channel gen
 #       is the most expensive part of the data generation process.
@@ -168,7 +169,7 @@ H_norm, H_noisy_norm, h_max = process_and_save_channel(
     H_complex=H_seq,
     time_axis=1,
     data_folder=DATA_FOLDER,
-    model='asu_campus_3p5',
+    model='asu_campus_3p5_10cm' + (f'_interp_{INTERP_FACTOR}' if INTERPOLATE else ''),
     snr_db=SNR
 )
 
