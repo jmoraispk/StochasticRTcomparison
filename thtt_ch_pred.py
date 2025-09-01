@@ -39,7 +39,8 @@ from thtt_ch_pred_utils import (
     nmse,
     process_and_save_channel,
     split_data,
-    expand_to_uniform_sequences
+    expand_to_uniform_sequences,
+    interpolate_dataset_from_seqs
 )
 
 # To plot test matrix
@@ -54,10 +55,20 @@ NR = 1
 
 N_SAMPLES = 200_000
 DATA_FOLDER = 'ch_pred_data_200k'
-L = 95
+L = 95  # 55 for input, 40 for output
+
+# Sequence length for channel prediction
+PRE_INTERP_SEQ_LEN = L if not INTERPOLATE else max(L // INTERP_FACTOR + 1, 2) # min length is 2
+# Note: interpolation will scale the sequence length by INTERP_FACTOR to be >= L
+#       (at least 2 samples needed for interpolation)
 
 SNR = 250 # [dB] NOTE: for RT, normalization must be consistent for w & w/o noise
 MAX_DOOPLER = 40 # [Hz]
+
+INTERPOLATE = True
+INTERP_FACTOR = 10
+
+# RT sample distance / INTERP_FACTOR = sample distance in the interpolated dataset
 
 #%% [ANY ENV] 1. Ray tracing data generation: Load data
 
@@ -73,7 +84,7 @@ dataset = dm.load('asu_campus_3p5', matrices=matrices)
 
 #%% [ANY ENV] 3. Ray tracing data generation: Create sequences
 
-all_seqs = get_all_sequences(dataset, min_len=L)
+all_seqs = get_all_sequences(dataset, min_len=PRE_INTERP_SEQ_LEN)
 
 # Print statistics
 seq_lens = [len(seq) for seq in all_seqs]
@@ -93,35 +104,59 @@ plt.title('Distribution of sequence lengths')
 plt.grid()
 plt.show()
 
-#%% [ANY ENV] 4. Ray tracing data generation: Interpolate sequences
-
-# TODO: interpolate sequences
-
+dataset_ready = dataset
 
 #%% [ANY ENV] 5. Ray tracing data generation: Create sequences for Channel Prediction
 
 # Split all sequences in LENGTH L (output: (n_seqs, L)
-all_seqs_mat_t = expand_to_uniform_sequences(all_seqs, target_len=L, stride=1)
+all_seqs_mat_t = expand_to_uniform_sequences(all_seqs, target_len=PRE_INTERP_SEQ_LEN, stride=1)
 print(f"all_seqs_mat_t.shape: {all_seqs_mat_t.shape}")
 
-# sample N sequences from all_trimmed_seqs_mat
-N = min(N_SAMPLES, len(all_seqs_mat_t))
-idxs = np.random.choice(len(all_seqs_mat_t), N, replace=False)
-all_seqs_mat_t2 = all_seqs_mat_t[idxs]
+# Number of sequences to sample from original sequences
+final_samples = min(N_SAMPLES, len(all_seqs_mat_t))
+idxs = np.random.choice(len(all_seqs_mat_t), final_samples, replace=False)
+all_seqs_mat_t2 = all_seqs_mat_t[idxs][:2000]
 print(f"all_seqs_mat_t2.shape: {all_seqs_mat_t2.shape}")
 
-# TODO: compute channels only for users in all_seqs_mat_t2
+#%% [ANY ENV] 4. Ray tracing data generation: Interpolate sequences
+
+# When we interpolate, it's easier to sample sequences of length L from the original sequences, 
+# and then create a dataset with only the interpolated results.
+
+# If we don't interpolate, we can sample sequences of length L from the interpolated dataset.
+
+if INTERPOLATE:
+    dataset_ready = interpolate_dataset_from_seqs(
+        dataset,
+        all_seqs_mat_t2,
+        points_per_segment=INTERP_FACTOR
+    )
+    print(f"dataset_ready.n_ue: {dataset_ready.n_ue}")
+    tgt_shape = (all_seqs_mat_t2.shape[0], -1, NT, NR, 1)
+
+#%%
+
+# TODO: in case of no interpolation, still compute channels only for necessary users
+# NOTE: when the product seq_len * n_seqs >> n_ue, it's better to generate channels first
+#       and then take the sequences from the generated channels, because channel gen
+#       is the most expensive part of the data generation process.
+#       IF, instead, the product seq_len * n_seqs < n_ue, it's better to generate sequences first, 
+#       trim the dataset to the necessary users, and then generate channels for the users in the sequences.
+# TODO: implement this choice when selecting data...
+# Currently: without interpolation, we gen channels first and select channels from sequence indices after. 
+#            with interpolation, we select sequences and trim the dataset to the necessary users.
+#            (with interpolation, this necessary because NEW points are in the dataset)
 
 # Create channels
 ch_params = dm.ChannelParameters()
 ch_params.bs_antenna.shape = [NT, 1]
 ch_params.ue_antenna.shape = [NR, 1]
-dataset.set_doppler(MAX_DOOPLER)
-H = dataset.compute_channels(ch_params)
+dataset_ready.set_doppler(MAX_DOOPLER)
+H = dataset_ready.compute_channels(ch_params)
 print(f"H.shape: {H.shape}")
 
 # Take sequences right away (some data may repeat, particularily for short sequences)
-H_seq = H[all_seqs_mat_t2, ...]
+H_seq = H[all_seqs_mat_t2, ...] if not INTERPOLATE else H[:, None, ...].reshape(tgt_shape)
 print(f"H_seq.shape: {H_seq.shape}") # (n_samples, seq_len, n_rx_ant, n_tx_ant, subcarriers)
 
 # Plot H - transform to fit: (n_samples, n_rx_ant, n_tx_ant, seq_len)

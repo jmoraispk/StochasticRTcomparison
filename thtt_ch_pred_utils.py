@@ -4,7 +4,7 @@ import deepmimo as dm
 import os
 import matplotlib.pyplot as plt
 import subprocess
-
+from tqdm import tqdm
 
 def db(x):
     return 10 * np.log10(x)
@@ -45,6 +45,25 @@ def get_consecutive_active_segments(dataset: dm.Dataset, idxs: np.ndarray,
 
 
 def get_all_sequences(dataset: dm.Dataset, min_len: int = 1) -> list[np.ndarray]:
+    """
+    Extract all consecutive active user index sequences from a dataset, 
+    considering both rows and columns of the grid.
+
+    For each row and each column in the dataset grid, this function finds all
+    consecutive segments of active users (with length at least `min_len`) and
+    returns them as a list of index arrays.
+
+    Args:
+        dataset (dm.Dataset): The dataset object, expected to provide grid_size,
+            get_row_idxs, get_col_idxs, and to be compatible with
+            get_consecutive_active_segments.
+        min_len (int, optional): Minimum length of a segment to be included. 
+            Defaults to 1.
+
+    Returns:
+        list[np.ndarray]: List of arrays, each containing indices of a consecutive
+            active user segment (row-wise or column-wise).
+    """
     n_cols, n_rows = dataset.grid_size
     all_seqs = []
     for k in range(n_rows):
@@ -106,66 +125,6 @@ def make_sequence_video(dataset, folder='sweeps', ffmpeg_fps=60):
         f"{folder}/output_{ffmpeg_fps}fps.mp4"
     ])
 
-########### Data Generation INTERPOLATION - for ray tracing ###########
-
-
-# Make a function that interpolates the path between 2 users
-def interpolate_percentage(array1, array2, percents):
-    """Interpolate between two points at specified percentages.
-    
-    Args:
-        pos1: Starting position/value
-        pos2: Ending position/value
-        percents: Array of percentages between 0 and 1
-        
-    Returns:
-        np.ndarray: Array of interpolated values at given percents
-    """
-    # Ensure percentages are between 0 and 1
-    percents = np.clip(percents, 0, 1)
-
-    # Broadcast to fit shape of interpolated array
-    percents = np.reshape(percents, percents.shape + (1,) * array1.ndim)
-
-    return array1 * (1 - percents) + array2 * percents
-
-
-
-
-def get_all_sequences(dataset: dm.Dataset, min_len: int = 1) -> list[np.ndarray]:
-    """
-    Extract all consecutive active user index sequences from a dataset, 
-    considering both rows and columns of the grid.
-
-    For each row and each column in the dataset grid, this function finds all
-    consecutive segments of active users (with length at least `min_len`) and
-    returns them as a list of index arrays.
-
-    Args:
-        dataset (dm.Dataset): The dataset object, expected to provide grid_size,
-            get_row_idxs, get_col_idxs, and to be compatible with
-            get_consecutive_active_segments.
-        min_len (int, optional): Minimum length of a segment to be included. 
-            Defaults to 1.
-
-    Returns:
-        list[np.ndarray]: List of arrays, each containing indices of a consecutive
-            active user segment (row-wise or column-wise).
-    """
-    n_cols, n_rows = dataset.grid_size
-    all_seqs = []
-    for k in range(n_rows):
-        idxs = dataset.get_row_idxs(k)
-        consecutive_arrays = get_consecutive_active_segments(dataset, idxs, min_len)
-        all_seqs += consecutive_arrays
-
-    for k in range(n_cols):
-        idxs = dataset.get_col_idxs(k)
-        consecutive_arrays = get_consecutive_active_segments(dataset, idxs, min_len)
-        all_seqs += consecutive_arrays
-
-    return all_seqs
-
 
 def expand_to_uniform_sequences(
     sequences: list[np.ndarray] | np.ndarray,
@@ -206,6 +165,133 @@ def expand_to_uniform_sequences(
         return np.empty((0, target_len), dtype=int)
     return np.stack(out, axis=0)
 
+########### Data Generation INTERPOLATION - for ray tracing ###########
+
+
+# Make a function that interpolates the path between 2 users
+def interpolate_percentage(array1, array2, percents):
+    """Interpolate between two points at specified percentages.
+    
+    Args:
+        pos1: Starting position/value
+        pos2: Ending position/value
+        percents: Array of percentages between 0 and 1
+        
+    Returns:
+        np.ndarray: Array of interpolated values at given percents
+    """
+    # Ensure percentages are between 0 and 1
+    percents = np.clip(percents, 0, 1)
+
+    # Broadcast to fit shape of interpolated array
+    percents = np.reshape(percents, percents.shape + (1,) * array1.ndim)
+
+    return array1 * (1 - percents) + array2 * percents
+
+
+def interpolate_dataset_from_seqs(
+    dataset: dm.Dataset | dm.MacroDataset,
+    sequences: np.ndarray,
+    step_meters: float | None = 0.5,
+    points_per_segment: int | None = None
+) -> dm.Dataset:
+    """Create a new Dataset by interpolating along each sequence of indices.
+
+    This function takes sequences of indices into a dataset and creates a new dataset by interpolating
+    between consecutive points in each sequence. The interpolation can be done either:
+    - Based on physical distance (step_meters): Points are placed every step_meters along each segment
+    - Based on fixed count (points_per_segment): A fixed number of evenly-spaced points per segment
+
+    Args:
+        dataset: Source dataset containing the data to interpolate
+        sequences: Array of shape [n_sequences, sequence_length] containing indices into dataset
+        step_meters: Distance between interpolated points. Set to None to use points_per_segment.
+        points_per_segment: Number of points per segment. Set to None to use step_meters.
+
+    Returns:
+        A new Dataset containing the interpolated data with shape [n_total_points, ...] where
+        n_total_points depends on the interpolation parameters and sequence lengths.
+
+    The following fields are interpolated:
+        - rx_pos: Receiver positions [n_points, 3]
+        - power, phase, delay: Ray parameters [n_points, n_rays] 
+        - aoa_az, aod_az, aoa_el, aod_el: Angles [n_points, n_rays]
+        - inter: Interaction types [n_points, n_rays] (copied from first point)
+        - inter_pos: Interaction positions [n_points, n_rays, n_interactions, 3] (if present)
+    """
+    # Unwrap MacroDataset if necessary
+    dataset = dataset.datasets[0] if isinstance(dataset, dm.MacroDataset) else dataset
+
+    n_sequences = len(sequences)
+
+    # Define arrays to interpolate
+    ray_fields = ['rx_pos', 'power', 'phase', 'delay', 'aoa_az', 'aod_az', 'aoa_el', 'aod_el']
+    interpolation_fields = ray_fields + (['inter_pos'] if dataset.inter_pos is not None else [])
+    replication_fields = ['inter'] if dataset.inter is not None else []
+
+    # Initialize accumulators for interpolated data
+    expanded_data = {field: [] for field in interpolation_fields + replication_fields}
+
+    for seq_idx in tqdm(range(n_sequences), desc="Interpolating sequences"):
+        sequence = sequences[seq_idx]
+        for segment_idx in range(len(sequence) - 1):
+            point1_idx = int(sequence[segment_idx])
+            point2_idx = int(sequence[segment_idx + 1])
+
+            # Determine interpolation points for this segment
+            if step_meters is not None and points_per_segment is None:
+                # Distance-based interpolation
+                pos1, pos2 = dataset.rx_pos[point1_idx], dataset.rx_pos[point2_idx]
+                segment_distance = float(np.linalg.norm(pos2 - pos1))
+                n_points = max(1, int(np.ceil(segment_distance / float(step_meters))))
+            else:
+                # Fixed count interpolation
+                n_points = 1 if points_per_segment is None else max(1, int(points_per_segment))
+            
+            interp_points = np.linspace(0.0, 1.0, n_points, endpoint=False)
+            if interp_points.size == 0:
+                continue
+
+            # Interpolate ray parameters
+            for field in interpolation_fields:
+                val1, val2 = dataset[field][point1_idx], dataset[field][point2_idx]
+                expanded_data[field].append(interpolate_percentage(val1, val2, interp_points))
+
+            # Copy interaction data from first point
+            for field in replication_fields:
+                data = dataset[field][point1_idx]
+                expanded_data[field].append(np.tile(data[None, ...], (len(interp_points), 1)))
+
+        # Append final endpoint of the sequence explicitly
+        final_idx = sequence[-1]
+        for field in interpolation_fields + replication_fields:
+            expanded_data[field].append(np.expand_dims(dataset[field][final_idx], 0))
+
+    # Concatenate all interpolated data
+    concatenated_data: dict[str, np.ndarray] = {}
+    for field, data_list in expanded_data.items():
+        if len(data_list):
+            concatenated_data[field] = np.concatenate(data_list, axis=0)
+
+    # Create new dataset with shared parameters
+    new_dataset_params = {}
+    for param in ['scene', 'materials', 'load_params', 'rt_params']:
+        if hasattr(dataset, param):
+            new_dataset_params[param] = getattr(dataset, param)
+
+    new_dataset_params['n_ue'] = int(concatenated_data['rx_pos'].shape[0])
+    new_dataset_params['parent_name'] = dataset.get('parent_name', dataset.name)
+    new_dataset_params['name'] = f"{dataset.name}_interp"
+
+    new_dataset = dm.Dataset(new_dataset_params)
+    new_dataset.tx_pos = dataset.tx_pos
+    
+    # Assign all interpolated arrays
+    for field in interpolation_fields + replication_fields:
+        if field in concatenated_data:
+            new_dataset[field] = concatenated_data[field]
+
+    return new_dataset
 
 
 ########### Data Generation POST-PROCESSING - Normalize & Save ###########
