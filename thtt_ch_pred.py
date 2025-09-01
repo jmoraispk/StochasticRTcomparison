@@ -1,3 +1,27 @@
+"""
+[Data generation for channel prediction]
+
+Ray tracing data generation (DeepMIMO):
+- Load data
+- Create all sequences of samples in RT scenario (list of arrays)
+- (optional) Interpolate sequences (list of arrays with K times the length)
+- Create uniform (same length) sequences for Channel Prediction (N seq x L array)
+- Generate channels for all points in the sequences & 
+
+Stochastic data generation (Sionna):
+- Import and create data generator
+- Generate channel data (N seq x L array)
+
+Post-processing (common for ray tracing & stochastic):
+- Reshape to (n_samples, seq_len, features)
+- Concatenate real & imaginary parts (n_samples, seq_len, real_features)
+- Add noise (based on SNR)
+- Normalize (by max absolute value of real features)
+- Save data (if save=True, default)
+
+"""
+
+
 #%% [MANDATORY CONSTANTS - ANY ENV] Imports
 
 import numpy as np
@@ -9,6 +33,17 @@ import deepmimo as dm
 # To plot H for specific antennas (uses only matplotlib)
 from thtt_ch_pred_plot import plot_iq_from_H
 
+# To create sequences and videos
+from thtt_ch_pred_utils import (
+    get_all_sequences,
+    make_sequence_video,
+    db,
+    mse,
+    nmse,
+    process_and_save_channel,
+    split_data
+)
+
 NT = 2
 NR = 1
 
@@ -19,104 +54,19 @@ L = 95
 SNR = 250 # [dB] NOTE: for RT, normalization must be consistent for w & w/o noise
 MAX_DOOPLER = 40 # [Hz]
 
-def db(x):
-    return 10 * np.log10(x)
-
-def mse(pred, target):
-    """Calculate mean squared error between prediction and target."""
-    return np.mean(np.abs(pred - target) ** 2)
-
-def nmse(pred, target):
-    """Calculate normalized (by power) MSE between prediction and target."""
-    return mse(pred, target) / np.mean(np.abs(target) ** 2)
-
-#%% [ANY ENV] Load data
+#%% [ANY ENV] Ray tracing data generation: Load data
 
 matrices = ['rx_pos', 'tx_pos', 'aoa_az', 'aod_az', 'aoa_el', 'aod_el', 
             'delay', 'power', 'phase', 'inter']
-# essential_matrices = ['rx_pos', 'aoa_az', 'inter']
 
-dataset = dm.load('asu_campus_3p5_10cm', matrices=matrices)
-# dataset = dm.load('asu_campus_3p5')#, matrices=essential_matrices)
+# dataset = dm.load('asu_campus_3p5_10cm', matrices=matrices)
+dataset = dm.load('asu_campus_3p5', matrices=matrices)
 
-#%% [ANY ENV] Generate all linear sequences in a scenario
+#%% [ANY ENV] Ray tracing data generation: Make video of all sequences
 
-def get_consecutive_active_segments(dataset: dm.Dataset, idxs: np.ndarray,
-                                    min_len: int = 1) -> list[np.ndarray]:
-    """Get consecutive segments of active users.
-    
-    Args:
-        dataset: DeepMIMO dataset
-        idxs: Array of user indices to check
-        
-    Returns:
-        List of arrays containing consecutive active user indices
-    """
-    active_idxs = np.where(dataset.los[idxs] != -1)[0]
-    
-    # Split active_idxs into arrays of consecutive indices
-    splits = np.where(np.diff(active_idxs) != 1)[0] + 1
-    consecutive_arrays = np.split(active_idxs, splits)
-    
-    # Filter out single-element arrays
-    consecutive_arrays = [idxs[arr] for arr in consecutive_arrays if len(arr) > min_len]
-    
-    return consecutive_arrays
-    
-#%% [ANY ENV] Make video of all sequences
+# make_sequence_video(dataset, folder='sweeps', ffmpeg_fps=60)
 
-folder = 'sweeps'
-os.makedirs(folder, exist_ok=True)
-
-n_cols, n_rows = dataset.grid_size
-
-for row_or_col in ['row', 'col']:
-    for k in range(n_rows if row_or_col == 'row' else n_cols):
-        idx_func = dataset.get_row_idxs if row_or_col == 'row' else dataset.get_col_idxs
-        idxs = idx_func(k)
-        consecutive_arrays = get_consecutive_active_segments(dataset, idxs)
-        
-        print(f"{row_or_col} {k} has {len(consecutive_arrays)} consecutive segments:")
-        dataset.los.plot()
-        for i, arr in enumerate(consecutive_arrays):
-            print(f"Segment {i}: {len(arr)} users")
-            plt.scatter(dataset.rx_pos[arr, 0], 
-                        dataset.rx_pos[arr, 1], color='red', s=.5)
-        
-        plt.savefig(f'{folder}/asu_campus_3p5_{row_or_col}_{k:04d}.png', 
-                    bbox_inches='tight', dpi=200)
-        plt.close()
-        # break
-
-import subprocess
-
-subprocess.run([
-    "ffmpeg", "-y",
-    "-framerate", "60",
-    "-pattern_type", "glob",
-    "-i", f"{folder}/*.png",
-    "-vf", "crop=in_w:in_h-mod(in_h\\,2)",
-    "-c:v", "libx264",
-    "-pix_fmt", "yuv420p",
-    f"{folder}/output_60fps.mp4"
-])
-
-#%% [ANY ENV] Create all sequences
-
-def get_all_sequences(dataset: dm.Dataset, min_len: int = 1) -> list[np.ndarray]:
-    n_cols, n_rows = dataset.grid_size
-    all_seqs = []
-    for k in range(n_rows):
-        idxs = dataset.get_row_idxs(k)
-        consecutive_arrays = get_consecutive_active_segments(dataset, idxs, min_len)
-        all_seqs += consecutive_arrays
-
-    for k in range(n_cols):
-        idxs = dataset.get_col_idxs(k)
-        consecutive_arrays = get_consecutive_active_segments(dataset, idxs, min_len)
-        all_seqs += consecutive_arrays
-
-    return all_seqs
+#%% [ANY ENV] Ray tracing data generation: Create all sequences
 
 all_seqs = get_all_sequences(dataset, min_len=L)
 
@@ -138,7 +88,7 @@ plt.title('Distribution of sequence lengths')
 plt.grid()
 plt.show()
 
-#%% [ANY ENV] Creating ray tracing data for Channel Prediction
+#%% [ANY ENV] Ray tracing data generation: Create sequences for Channel Prediction
 
 # Split all sequences in _ LENGTH
 all_trimmed_seqs = []
@@ -166,7 +116,6 @@ H = dataset.compute_channels(ch_params)
 print(f"H.shape: {H.shape}")
 
 # Take sequences right away (some data may repeat, particularily for short sequences)
-
 H_seq = H[all_seqs_mat_t2, ...]
 print(f"H_seq.shape: {H_seq.shape}") # (n_samples, seq_len, n_rx_ant, n_tx_ant, subcarriers)
 
@@ -174,36 +123,20 @@ print(f"H_seq.shape: {H_seq.shape}") # (n_samples, seq_len, n_rx_ant, n_tx_ant, 
 H_3_plot = np.transpose(H_seq[:, :, :, :, 0], (0, 2, 3, 1))
 plot_sample_idx, plot_rx_idx = plot_iq_from_H(H_3_plot)
 
-# Concatenate feature dimensions (rx ant, tx ant, subcarriers)
-H2 = H_seq.reshape(H_seq.shape[0], H_seq.shape[1], -1)
-print(f"H2.shape: {H2.shape}") # (n_samples, seq_len, features = n_rx_ant * n_tx_ant * subcarriers)
-
-# Make Real by putting IQ into the features
-H3 = np.concatenate([H2.real, H2.imag], axis=-1)
-print(f"H3.shape: {H3.shape}") # (n_samples, seq_len, 2*features)
-
-# Add noise
-noise_var = 10**(-SNR/10)
-noise = np.random.randn(*H3.shape) * np.sqrt(noise_var)
-H_noisy = H3 + noise
-
-# Normalize (take abs to account for negative values - not because of IQ)
-h_max = np.nanmax(np.abs(H_noisy))  # Note: for SNR < 100, max h_norm != max(h_noisy)
-H_noisy_norm = H_noisy / h_max
-H_norm = H3 / h_max
-print(f"H_norm.shape: {H_norm.shape}") # (n_samples, features)
-print(f"H_noisy_norm.shape: {H_noisy_norm.shape}") # (n_samples, features)
+# Unified post-processing and saving
+model = 'asu_campus_3p5'
+H_norm, H_noisy_norm, h_max = process_and_save_channel(
+    H_complex=H_seq,
+    time_axis=1,
+    data_folder=DATA_FOLDER,
+    model=model,
+    snr_db=SNR
+)
 
 # Plot normalized version
 plot_iq_from_H(H_3_plot / h_max, plot_sample_idx, plot_rx_idx)
 
-# Save data
-model = 'asu_campus_3p5'
-os.makedirs(DATA_FOLDER, exist_ok=True)
-np.save(f'{DATA_FOLDER}/H_norm_{model}.npy', H_norm.astype(np.float32))
-np.save(f'{DATA_FOLDER}/H_noisy_norm_{model}.npy', H_noisy_norm.astype(np.float32))
-
-#%% [SIONNA ENV] Import and Create Data Generator
+#%% [SIONNA ENV] Stochastic data generation: Import and Create Data Generator
 
 from tqdm import tqdm
 from data_gen import DataConfig
@@ -240,7 +173,7 @@ ch_gen = SionnaChannelGenerator(num_prbs=config.n_prbs,
                                 frequency=fc, # [Hz]
                                 subcarrier_spacing=15e3) # [Hz]
 
-#%% [SIONNA ENV] Generate channel data
+#%% [SIONNA ENV] Stochastic data generation: Generate channel data
 
 def channel_sample(batch_size=1000, num_time_steps=10, sampling_frequency=1e3):
     """Sample channel coefficients and delays.
@@ -298,39 +231,16 @@ print(f"H.shape: {H.shape}")
 # Plot H for specific antennas 
 plot_sample_idx, plot_rx_idx = plot_iq_from_H(H)
 
-# Merge antenna dimensions
-H2 = H.reshape(H.shape[0], -1, H.shape[-1])
-print(f"H2.shape: {H2.shape}") # (n_samples, n_rx_ant * n_tx_ant, seq_len)
-
-# Put features in the last dimension
-H2 = H2.swapaxes(1, 2)
-print(f"H2.shape: {H2.shape}") # (n_samples, sequence_length, features)
-
-# Make Real by putting IQ into the features
-H2 = np.concatenate([H2.real, H2.imag], axis=2)
-print(f"H2.shape: {H2.shape}") # (n_samples, sequence_length, 2*features)
-
-# Add noise
-noise_var = 10**(-SNR/10)
-noise = np.random.randn(*H2.shape) * np.sqrt(noise_var)
-H_noisy = H2 + noise
-
-# Normalize
-h_max = np.nanmax(np.abs(H_noisy))
-H_noisy_norm = H_noisy / h_max
-H_norm = H2 / h_max
-print(f"H_noisy_norm.shape: {H_noisy_norm.shape}")
+# Unified post-processing and saving
+H_norm, H_noisy_norm, h_max = process_and_save_channel(
+    H_complex=H,
+    time_axis=-1,
+    data_folder=DATA_FOLDER,
+    model=model,
+    snr_db=SNR
+)
 
 plot_iq_from_H(H / h_max, plot_sample_idx, plot_rx_idx)
-
-# NOTE: either normalize just range (no shift): x = x / (x_max - x_min)
-#       or normalize range and shift: x = (x - x_min) / (x_max - x_min)
-#       BUT the latter requires a denormalization when computing NMSE
-
-# Save data
-os.makedirs(DATA_FOLDER, exist_ok=True)
-np.save(f'{DATA_FOLDER}/H_noisy_norm_{model}.npy', H_noisy_norm)
-np.save(f'{DATA_FOLDER}/H_norm_{model}.npy', H_norm)
 
 #%% [PYTORCH ENVIRONMENT] Split data
 
@@ -339,61 +249,11 @@ from nr_channel_predictor_wrapper import (
     save_model_weights, load_model_weights
 )
 
-def split_data(H_norm: np.ndarray, train_ratio: float = 0.9, 
-               l_in: int | None = None, l_gap: int = 0):
-    """
-    Parameters
-    ----------
-    H_norm : np.ndarray
-        Array shaped (n_samples, seq_len).
-    train_ratio : float, default 0.9
-        Fraction of samples used for training.
-    l_in : int, optional
-        Number of consecutive time-steps fed to the model (x).  
-        If None, use all available steps except the prediction target and gap.
-    l_gap : int, default 0
-        Number of steps skipped between the end of x and the prediction target y.
-        If l_gap = 0, use the last input step as prediction target.
 
-    Returns
-    -------
-    x_train, y_train, x_val, y_val : np.ndarray
-    """
-
-    seq_len = H_norm.shape[1]
-
-    # default ‑ keep old behaviour ⇒ use every step except the last one
-    if l_in is None:
-        l_in = seq_len - l_gap - 1
-
-    y_idx = l_in + l_gap - 1
-
-    if l_in <= 0 or l_gap < 0 or (y_idx >= seq_len):
-        raise ValueError("Invalid l_in/l_gap for given sequence length")
-
-    # build input and target
-    x_all = H_norm[:, :l_in]             # first l_in steps
-    y_all = H_norm[:, y_idx]  # one step after the gap
-
-    n_samples = H_norm.shape[0]
-    n_train = int(n_samples * train_ratio)
-
-    x_train = x_all[:n_train]
-    y_train = y_all[:n_train]
-    x_val   = x_all[n_train:]
-    y_val   = y_all[n_train:]
-
-    # quick sanity print‑outs
-    print(f"x_train.shape: {x_train.shape}")
-    print(f"y_train.shape: {y_train.shape}")
-    print(f"x_val.shape: {x_val.shape}")
-    print(f"y_val.shape: {y_val.shape}")
-
-    return x_train, y_train, x_val, y_val
 
 #%% [PYTORCH ENVIRONMENT] Train models
 
-models_folder = 'ch_pred_models3'
+models_folder = 'ch_pred_models4'
 os.makedirs(models_folder, exist_ok=True)
 
 models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5']
@@ -481,8 +341,8 @@ plt.figure(dpi=200)
 colors = ['#E41A1C', '#377EB8', '#4DAF4A', '#984EA3']  # Colorblind-friendly palette
 markers = ['o', 's', 'D', 'P']
 for i, model in enumerate(models):
-    plt.plot(horizons[o:], val_loss_per_horizon_gru[model][o:], label=model, 
-             color=colors[i], marker=markers[i], markersize=5)
+    # plt.plot(horizons[o:], val_loss_per_horizon_gru[model][o:], label=model, 
+    #          color=colors[i], marker=markers[i], markersize=5)
     plt.plot(horizons[o:], val_loss_per_horizon_gru_best[model][o:], label=model + '_best', 
              color=colors[i], linestyle='-.', marker=markers[i], markersize=5)
     plt.plot(horizons[o:], val_loss_per_horizon_sh[model][o:], label=model + '_SH', 
@@ -642,3 +502,82 @@ ft_matrix = fine_tune_and_test(models, horizon=1, l_in=10,
 
 plot_test_matrix(ft_matrix, models)
 
+
+#%%
+
+
+# Make a function that interpolates the path between 2 users
+def interpolate_percentage(array1, array2, percents):
+    """Interpolate between two points at specified percentages.
+    
+    Args:
+        pos1: Starting position/value
+        pos2: Ending position/value
+        percents: Array of percentages between 0 and 1
+        
+    Returns:
+        np.ndarray: Array of interpolated values at given percents
+    """
+    # Ensure percentages are between 0 and 1
+    percents = np.clip(percents, 0, 1)
+
+    # Broadcast to fit shape of interpolated array
+    percents = np.reshape(percents, percents.shape + (1,) * array1.ndim)
+
+    return array1 * (1 - percents) + array2 * percents
+
+
+
+
+def get_all_sequences(dataset: dm.Dataset, min_len: int = 1) -> list[np.ndarray]:
+    n_cols, n_rows = dataset.grid_size
+    all_seqs = []
+    for k in range(n_rows):
+        idxs = dataset.get_row_idxs(k)
+        consecutive_arrays = get_consecutive_active_segments(dataset, idxs, min_len)
+        all_seqs += consecutive_arrays
+
+    for k in range(n_cols):
+        idxs = dataset.get_col_idxs(k)
+        consecutive_arrays = get_consecutive_active_segments(dataset, idxs, min_len)
+        all_seqs += consecutive_arrays
+
+    return all_seqs
+
+all_seqs = get_all_sequences(dataset, min_len=1)
+
+# Print statistics
+sum_len_seqs = sum([len(seq) for seq in all_seqs])
+avg_len_seqs = sum_len_seqs / len(all_seqs)
+
+print(f"Number of sequences: {len(all_seqs)}")
+print(f"Average length of sequences: {avg_len_seqs:.1f}")
+
+print(f"Number of active users: {len(dataset.get_active_idxs())}")
+print(f"Total length of sequences: {sum_len_seqs}")
+
+def expand_to_uniform_sequences(sequences: list[np.ndarray] | np.ndarray,
+                                target_len: int,
+                                stride: int = 1) -> np.ndarray:
+    """From a list/array of index sequences, return a 2D array of windows of length target_len.
+    Sequences shorter than target_len are dropped. Uses sliding window with given stride.
+    """
+    if isinstance(sequences, list):
+        seq_list = [np.asarray(seq, dtype=int) for seq in sequences]
+    else:
+        # sequences is assumed 2D already; convert to list of 1D arrays
+        seq_list = [np.asarray(sequences[i], dtype=int) for i in range(sequences.shape[0])]
+
+    out: list[np.ndarray] = []
+    for seq in seq_list:
+        if len(seq) < target_len:
+            continue
+        for i in range(0, len(seq) - target_len + 1, stride):
+            out.append(seq[i:i+target_len])
+    if len(out) == 0:
+        return np.empty((0, target_len), dtype=int)
+    return np.stack(out, axis=0)
+
+# Expand to uniform sequences
+all_seqs_mat_t = expand_to_uniform_sequences(all_seqs, target_len=10, stride=1)
+print(f"all_seqs_mat_t.shape: {all_seqs_mat_t.shape}")
