@@ -56,11 +56,11 @@ NT = 2
 NR = 1
 
 N_SAMPLES = 200_000
-DATA_FOLDER = 'ch_pred_data_200k'
-L = 95  # 55 for input, 40 for output
+DATA_FOLDER = 'ch_pred_data_200k_400hz'
+L = 60  # 20 input, 40 output
 
-SNR = 250 # [dB] NOTE: for RT, normalization must be consistent for w & w/o noise
-MAX_DOOPLER = 40 # [Hz]
+SNR = 250 # [dB]
+MAX_DOOPLER = 10 # [Hz]
 
 INTERPOLATE = True
 INTERP_FACTOR = 100
@@ -280,13 +280,10 @@ from nr_channel_predictor_wrapper import (
 
 #%% [PYTORCH ENVIRONMENT] Train models
 
-models_folder = 'ch_pred_models4'
+models_folder = 'ch_pred_models5'
 os.makedirs(models_folder, exist_ok=True)
 
-models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5']
-# models = ['TDL-A', 'CDL-C', 'UMa']
-# models = ['asu_campus_3p5']
-# models = ['TDL-A']
+models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5_10cm_interp_10']
 
 horizons = [1, 3, 5, 10, 20, 40]
 L = 20  # input sequence length
@@ -308,7 +305,7 @@ for model in models:
 
         x_train, y_train, x_val, y_val = split_data(H_norm, l_in=L, l_gap=horizon)
 
-        ch_pred_model = construct_model(NT, hidden_size=128, num_layers=3) ###################
+        ch_pred_model = construct_model(NT, hidden_size=128, num_layers=3)
         
         info(ch_pred_model)
 
