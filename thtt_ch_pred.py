@@ -37,7 +37,6 @@ from thtt_ch_pred_utils import (
     get_all_sequences,
     make_sequence_video,
     db,
-    mse,
     nmse,
     process_and_save_channel,
     split_data,
@@ -56,14 +55,15 @@ NT = 2
 NR = 1
 
 N_SAMPLES = 200_000
-DATA_FOLDER = 'ch_pred_data_200k_400hz'
-L = 60  # 20 input, 40 output
+L = 60  # 55 for input, 40 for output
 
 SNR = 250 # [dB]
 MAX_DOOPLER = 10 # [Hz]
 
 INTERPOLATE = True
 INTERP_FACTOR = 100
+
+DATA_FOLDER = f'ch_pred_data_{N_SAMPLES//1000}k_{MAX_DOOPLER}hz_{L}steps'
 
 # Sequence length for channel prediction
 PRE_INTERP_SEQ_LEN = L if not INTERPOLATE else max(L // INTERP_FACTOR + 1, 2) # min length is 2
@@ -188,18 +188,18 @@ data_cfg = DataConfig(
     n_prbs = 20,
     n_rx = NR,
     n_tx = NT, 
-    n_time_steps = L, # 55 for input, 100 for output
+    n_time_steps = L,
     samp_freq = 1e3,
-    batch_size = 100,
+    batch_size = 10_000,
     seed = 42
 )
 
-model = 'TDL-A'
+model = 'UMa'
 config = data_cfg
 
 fc = 3.5e9 # [Hz]
 speed = MAX_DOOPLER / (fc / 3e8) # E.g. at 3 m/s & 3.5 GHz, max Doppler = 37 Hz
- 
+
 print(f"Generating stochastic data for {model}...")
 ch_gen = SionnaChannelGenerator(num_prbs=config.n_prbs,
                                 channel_name=model,
@@ -276,7 +276,7 @@ from nr_channel_predictor_wrapper import (
     save_model_weights, load_model_weights
 )
 
-
+import pandas as pd
 
 #%% [PYTORCH ENVIRONMENT] Train models
 
@@ -286,7 +286,7 @@ os.makedirs(models_folder, exist_ok=True)
 models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5_10cm_interp_10']
 
 horizons = [1, 3, 5, 10, 20, 40]
-L = 20  # input sequence length
+L_IN = 20  # input sequence length
 
 val_loss_per_horizon_gru = {model: [] for model in models}
 val_loss_per_horizon_gru_best = {model: [] for model in models}
@@ -303,7 +303,7 @@ for model in models:
         #     print(f"Model weights file {model_weights_file} already exists. Skipping training.")
         #     continue
 
-        x_train, y_train, x_val, y_val = split_data(H_norm, l_in=L, l_gap=horizon)
+        x_train, y_train, x_val, y_val = split_data(H_norm, l_in=L_IN, l_gap=horizon)
 
         ch_pred_model = construct_model(NT, hidden_size=128, num_layers=3)
         
@@ -311,7 +311,7 @@ for model in models:
 
         trained_model, tr_loss, val_loss, elapsed_time = \
             train(ch_pred_model, x_train, y_train, x_val, y_val, 
-                initial_learning_rate=1e-4, batch_size=64, num_epochs=280, 
+                initial_learning_rate=4e-4, batch_size=256, num_epochs=300, 
                 verbose=True, patience=60, patience_factor=1,
                 best_model_path=model_weights_file.replace('.pth', '_best.pth'))
 
@@ -341,9 +341,6 @@ for model in models:
         print(f"  S&H: {db(sh_loss):.1f} dB")
 
 # Save validation loss results to CSV
-import pandas as pd
-
-# Create a dictionary to store the results
 results = {'horizon': horizons}
 
 # Add results for each model
@@ -359,6 +356,26 @@ print(f"Saved validation loss results to {models_folder}/validation_losses.csv")
 
 
 #%% Plot validation loss per horizon results
+
+models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5_10cm_interp_10']
+models_folder = 'ch_pred_models6'
+
+# Load validation loss results from CSV
+df = pd.read_csv(f'{models_folder}/validation_losses.csv')
+
+# Extract horizons and per-model losses from the DataFrame
+horizons = df['horizon'].tolist()
+
+# Initialize dictionaries to store the loaded losses
+val_loss_per_horizon_gru = {}
+val_loss_per_horizon_gru_best = {}
+val_loss_per_horizon_sh = {}
+
+for model in models:
+    val_loss_per_horizon_gru[model] = df[f'{model}_gru'].tolist()
+    val_loss_per_horizon_gru_best[model] = df[f'{model}_gru_best'].tolist()
+    val_loss_per_horizon_sh[model] = df[f'{model}_sh'].tolist()
+
 
 o = 0 # index of first horizon to plot (in case we want to start from non-zero)
 plt.figure(dpi=200)
@@ -379,12 +396,6 @@ plt.grid()
 plt.show()
 
 #%% Load models and test them on other datasets
-
-# Cross-testing configuration
-models_folder_eval = 'ch_pred_models2'
-
-# Ensure input length L used for evaluation matches training
-# Uses the same L already defined above
 
 
 def build_xy_all(H_norm: np.ndarray, l_in: int, l_gap: int) -> tuple[np.ndarray, np.ndarray]:
@@ -410,10 +421,10 @@ def compute_nmse_matrix(models_list: list[str], horizon: int, l_in: int) -> np.n
     results = np.zeros((len(models_list), len(models_list)), dtype=float)
 
     for i, src_model in enumerate(models_list):
-        weights_path = f"{models_folder_eval}/{src_model}_{horizon}.pth"
+        weights_path = f"{models_folder}/{src_model}_{horizon}_best.pth"
         print(f"\nLoading model weights: {weights_path}")
 
-        ch_pred_model = construct_model(NT, hidden_size=128, num_layers=2)
+        ch_pred_model = construct_model(NT, hidden_size=128, num_layers=3)
         ch_pred_model = load_model_weights(ch_pred_model, weights_path)
 
         for j, tgt_model in enumerate(models_list):
@@ -438,15 +449,16 @@ def compute_nmse_matrix(models_list: list[str], horizon: int, l_in: int) -> np.n
 
 
 # Run cross-testing over all defined models
-results_matrix = compute_nmse_matrix(models, horizon=1, l_in=10)
+results_matrix = compute_nmse_matrix(models, horizon=1, l_in=L_IN)
 
 # Plot confusion matrix (NMSE in dB inside the function)
-plot_test_matrix(results_matrix, models)
+# plot_test_matrix(results_matrix, models)
+plot_test_matrix(results_matrix, ['TDL-A', 'CDL-C', 'UMa', 'ASU-10mm'])
 
 #%% Fine tuning models & evaluating performance on target datasets
 
 # Fine-tuning configuration and utilities
-finetuned_models_folder = 'ch_pred_models_finetuned'
+finetuned_models_folder = models_folder + '_finetuned'
 os.makedirs(finetuned_models_folder, exist_ok=True)
 
 
@@ -460,8 +472,8 @@ def predict_batched(model, x: np.ndarray, batch_size: int = 128) -> np.ndarray:
 
 def fine_tune_and_test(models_list: list[str], horizon: int, l_in: int,
                        train_ratio: float = 0.9,
-                       initial_lr: float = 1e-4,
-                       batch_size: int = 64,
+                       initial_lr: float = 4e-4,
+                       batch_size: int = 256,
                        num_epochs: int = 80,
                        patience: int = 15,
                        patience_factor: float = 1.0) -> np.ndarray:
@@ -474,7 +486,7 @@ def fine_tune_and_test(models_list: list[str], horizon: int, l_in: int,
     ft_results = np.zeros((len(models_list), len(models_list)), dtype=float)
 
     for i, src_model in enumerate(models_list):
-        base_weights = f"{models_folder_eval}/{src_model}_{horizon}.pth"
+        base_weights = f"{models_folder}/{src_model}_{horizon}_best.pth"
         print(f"\n[Fine-tune] Using base weights: {base_weights}")
 
         for j, tgt_model in enumerate(models_list):
@@ -486,7 +498,7 @@ def fine_tune_and_test(models_list: list[str], horizon: int, l_in: int,
                                                         l_in=l_in, l_gap=horizon)
 
             # Load model from base weights
-            model = construct_model(NT, hidden_size=128, num_layers=2)
+            model = construct_model(NT, hidden_size=128, num_layers=3)
             model = load_model_weights(model, base_weights)
 
             # Train further on target data (fine-tune)
@@ -515,7 +527,7 @@ def fine_tune_and_test(models_list: list[str], horizon: int, l_in: int,
 
 
 # Run fine-tuning and plot results
-ft_matrix = fine_tune_and_test(models, horizon=1, l_in=10,
+ft_matrix = fine_tune_and_test(models, horizon=1, l_in=L_IN,
                                train_ratio=0.1,
                                initial_lr=1e-4,
                                batch_size=64,
