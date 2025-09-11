@@ -238,7 +238,7 @@ def info(chan_predictor):
 ###################################################################
 #                   Helpers
 ###################################################################
-def select_device(verbose: bool = False, device_idx: int = 1) -> torch.device:
+def select_device(verbose: bool = False, device_idx: int = 0) -> torch.device:
     """
     Selects the computational device for PyTorch operations.
 
