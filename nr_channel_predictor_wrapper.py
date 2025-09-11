@@ -251,9 +251,7 @@ def select_device(verbose: bool = False, device_idx: int = 0) -> torch.device:
     Returns:
         torch.device: The selected device, either GPU ('cuda') if available, or CPU ('cpu').
     """
-    # Determine the device based on availability
-    if device_idx is None:
-        device_idx = 0
+    # Determine the device based on availability (if GPU, default is GPU 0)
     device = torch.device(f"cuda:{device_idx}" if torch.cuda.is_available() else "cpu")
 
     # Verbose output for debugging and information
