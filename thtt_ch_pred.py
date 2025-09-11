@@ -29,7 +29,7 @@ Post-processing (common for ray tracing & stochastic):
 import numpy as np
 import os
 import matplotlib.pyplot as plt
-
+from tqdm import tqdm
 import deepmimo as dm
 
 # To create sequences and videos
@@ -54,22 +54,17 @@ NT = 2
 NR = 1
 
 N_SAMPLES = 200_000
-L = 60  # 55 for input, 40 for output
+L = 60  # 20 for input, 40 for output
+N_SUBCARRIERS = 1
 
 SNR = 250 # [dB] NOTE: for RT, normalization must be consistent for w & w/o noise
-MAX_DOOPLER = 400 # [Hz]
+MAX_DOOPLER = 100 # [Hz]
+TIME_DELTA = 1e-3 # [s]
 
 INTERPOLATE = True
-INTERP_FACTOR = 100
+INTERP_FACTOR = 2
 
-DATA_FOLDER = f'ch_pred_data_{N_SAMPLES//1000}k_{MAX_DOOPLER}hz_{L}steps'
-
-# Sequence length for channel prediction
-PRE_INTERP_SEQ_LEN = L if not INTERPOLATE else max(L // INTERP_FACTOR + 1, 2) # min length is 2
-# Note: interpolation will scale the sequence length by INTERP_FACTOR to be >= L
-#       (at least 2 samples needed for interpolation)
-
-# RT sample distance / INTERP_FACTOR = sample distance in the interpolated dataset
+DATA_FOLDER = f'ch_pred_data2_{N_SAMPLES//1000}k_{MAX_DOOPLER}hz_{L}steps'
 
 GPU_IDX = 0
 
@@ -86,6 +81,13 @@ dataset = dm.load('asu_campus_3p5_10cm', matrices=matrices)
 # make_sequence_video(dataset, folder='sweeps', ffmpeg_fps=60)
 
 #%% [ANY ENV] 2. Ray tracing data generation: Create sequences
+
+# Sequence length for channel prediction
+PRE_INTERP_SEQ_LEN = L if not INTERPOLATE else max(L // INTERP_FACTOR + 1, 2) # min length is 2
+# Note: interpolation will scale the sequence length by INTERP_FACTOR to be >= L
+#       (at least 2 samples needed for interpolation)
+
+# RT sample distance / INTERP_FACTOR = sample distance in the interpolated dataset
 
 all_seqs = get_all_sequences(dataset, min_len=PRE_INTERP_SEQ_LEN)
 
@@ -153,12 +155,29 @@ if INTERPOLATE:
 ch_params = dm.ChannelParameters()
 ch_params.bs_antenna.shape = [NT, 1]
 ch_params.ue_antenna.shape = [NR, 1]
-dataset_ready.set_doppler(MAX_DOOPLER)
-H = dataset_ready.compute_channels(ch_params)
-print(f"H.shape: {H.shape}")
+ch_params.ofdm.subcarriers = N_SUBCARRIERS
+ch_params.ofdm.selected_subcarriers = np.arange(N_SUBCARRIERS)
+ch_params.ofdm.bandwidth = 15e3 * N_SUBCARRIERS # [Hz]
+ch_params.doppler = True  # Enable doppler computation
 
-# Take sequences right away (some data may repeat, particularily for short sequences)
-H_seq = H[all_seqs_mat_t2, ...] if not INTERPOLATE else H[:, None, ...].reshape(tgt_shape)
+dataset_ready.set_doppler(MAX_DOOPLER)  # Add the same doppler to all users / paths
+H = dataset_ready.compute_channels(ch_params, times=np.arange(L) * TIME_DELTA)
+print(f"H.shape: {H.shape}")  # (n_samples * L, NR, NT, N_SUBCARRIERS, L)
+
+n_seqs = all_seqs_mat_t2.shape[0]
+H_seq = np.zeros((n_seqs, L, NR, NT, N_SUBCARRIERS), dtype=np.complex64)
+
+# Take sequences
+for seq_idx in tqdm(range(n_seqs), desc="Taking sequences"):
+    for sample_idx_in_seq in range(L):
+        if INTERPOLATE:
+            idx_in_h = seq_idx * L + sample_idx_in_seq
+        else:
+            idx_in_h = all_seqs_mat_t2[seq_idx, sample_idx_in_seq]
+        H_seq[seq_idx, sample_idx_in_seq] = H[idx_in_h, ..., sample_idx_in_seq]
+    # For each sequence, take the channels for the corresponding time steps
+    # e.g. first sample of sequence is at time 0, last sample of sequence is at time L-1
+
 print(f"H_seq.shape: {H_seq.shape}") # (n_samples, seq_len, n_rx_ant, n_tx_ant, subcarriers)
 
 # Plot H - transform to fit: (n_samples, n_rx_ant, n_tx_ant, seq_len)
@@ -174,7 +193,7 @@ H_norm, H_noisy_norm, h_max = process_and_save_channel(
     snr_db=SNR
 )
 
-# Plot normalized version
+# # Plot normalized version
 plot_iq_from_H(H_3_plot / h_max, plot_sample_idx, plot_rx_idx)
 
 #%% [SIONNA ENV] Stochastic data generation: Import and Create Data Generator
@@ -279,18 +298,16 @@ from nr_channel_predictor_wrapper import (
 
 import pandas as pd
 
-#%% [PYTORCH ENVIRONMENT] Train models
-
 models_folder = f'ch_pred_models_{MAX_DOOPLER}hz_{L}steps_INTERP_{INTERP_FACTOR}'
 os.makedirs(models_folder, exist_ok=True)
 
 models = ['TDL-A', 'CDL-C', 'UMa', f'asu_campus_3p5_10cm_interp_{INTERP_FACTOR}']
-#models = ['TDL-A', 'CDL-C', 'UMa']
-# models = ['asu_campus_3p5']
-# models = ['TDL-A']
+
+L_IN = 20  # input sequence length
+
+#%% [PYTORCH ENVIRONMENT] Train models
 
 horizons = [1, 3, 5, 10, 20, 40]
-L_IN = 20  # input sequence length
 
 val_loss_per_horizon_gru = {model: [] for model in models}
 val_loss_per_horizon_gru_best = {model: [] for model in models}
@@ -303,9 +320,9 @@ for model in models:
         print(f"========== Horizon: {horizon} ==========")
 
         model_weights_file = f'{models_folder}/{model}_{horizon}.pth'
-        # if os.path.exists(model_weights_file):
-        #     print(f"Model weights file {model_weights_file} already exists. Skipping training.")
-        #     continue
+        if os.path.exists(model_weights_file):
+            print(f"Model weights file {model_weights_file} already exists. Skipping training.")
+            continue
 
         x_train, y_train, x_val, y_val = split_data(H_norm, l_in=L_IN, l_gap=horizon)
 
@@ -362,9 +379,6 @@ print(f"Saved validation loss results to {models_folder}/validation_losses.csv")
 
 #%% Plot validation loss per horizon results
 
-#models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5_10cm_interp_10']
-#models_folder = f'ch_pred_models_{MAX_DOOPLER}hz_{L}steps_INTERP_{INTERP_FACTOR}'
-
 # Load validation loss results from CSV
 df = pd.read_csv(f'{models_folder}/validation_losses.csv')
 
@@ -390,7 +404,7 @@ for i, model in enumerate(models):
     # plt.plot(horizons[o:], val_loss_per_horizon_gru[model][o:], label=model, 
     #          color=colors[i], marker=markers[i], markersize=5)
     plt.plot(horizons[o:], val_loss_per_horizon_gru_best[model][o:], label=model + '_best', 
-             color=colors[i], linestyle='-.', marker=markers[i], markersize=5)
+             color=colors[i], marker=markers[i], markersize=5)
     plt.plot(horizons[o:], val_loss_per_horizon_sh[model][o:], label=model + '_SH', 
              color=colors[i], linestyle='--', marker=markers[i], markersize=5)
 plt.xlabel('Horizon (ms)')
@@ -401,7 +415,6 @@ plt.grid()
 plt.show()
 
 #%% Load models and test them on other datasets
-
 
 def build_xy_all(H_norm: np.ndarray, l_in: int, l_gap: int) -> tuple[np.ndarray, np.ndarray]:
     """Build full x/y for all samples using given input length and gap.
@@ -458,14 +471,14 @@ results_matrix = compute_nmse_matrix(models, horizon=1, l_in=L_IN)
 
 # Plot confusion matrix (NMSE in dB inside the function)
 # plot_test_matrix(results_matrix, models)
-plot_test_matrix(results_matrix, ['TDL-A', 'CDL-C', 'UMa', 'ASU-10mm'])
+asu_name = f'ASU-{100 // INTERP_FACTOR}mm' if INTERP_FACTOR != 2 else 'ASU-40mm'
+plot_test_matrix(results_matrix, ['TDL-A', 'CDL-C', 'UMa', asu_name])
 
 #%% Fine tuning models & evaluating performance on target datasets
 
 # Fine-tuning configuration and utilities
 finetuned_models_folder = models_folder + '_finetuned'
 os.makedirs(finetuned_models_folder, exist_ok=True)
-
 
 def predict_batched(model, x: np.ndarray, batch_size: int = 128) -> np.ndarray:
     preds = []
