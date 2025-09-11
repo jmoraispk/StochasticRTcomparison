@@ -149,7 +149,7 @@ def plot_pretraining_comparison(x_values: list,
 
         ax.set_ylabel('NMSE Gain over Base Model (dB)')
         ax.set_title('Performance Gain from Pre-training')
-        ax.legend(title='Pre-trained Models', loc='lower right')
+        ax.legend(title='Pre-trained Models')
         
         filename = 'pretrain_gain_comparison'
 
