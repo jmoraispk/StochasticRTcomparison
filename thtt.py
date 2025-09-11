@@ -322,6 +322,20 @@ for rep_idx in range(reps):
 
 #%% [PYTORCH ENV] Plot results matrix
 
+data_matrices = pickle_load(MAT_PATH)
+
+models = list(data_matrices.keys())
+
+reps = 10
+data_percents = [0.5, 1, 5, 10, 40, 80]  # Percentages of training data to use
+
+models = ['asu_campus_3p5', 'city_0_newyork_3p5', 'CDL-C', 'UMa']
+base_model = models[0]  # Model to train from scratch
+pretrained_models = models[1:]  # Models to use for pre-training
+
+n_samples = data_matrices[base_model].shape[0]
+
+results_folder = './results4'
 # Gather all result matrices
 results_matrix_db = np.zeros((len(data_percents), len(models)))
 for perc_idx, data_percent in enumerate(data_percents):
@@ -349,9 +363,13 @@ print(df.round(1).to_string())
 
 # Save results matrix
 os.makedirs(results_folder, exist_ok=True)
-np.save(results_folder + '/pretraining_results.npy', results_matrix_db)
+# np.save(results_folder + '/pretraining_results.npy', results_matrix_db)
 
 #%% Plot results for publication
+
+# np.save(results_folder + '/pretraining_results.npy', results_matrix_db
+
+data_percents = [0.5, 1, 5, 10, 40, 90]  # Percentages of training data to use
 
 # Calculate number of points for each percentage
 n_points = [int(round(n_samples * p / 100, -2)) for p in data_percents]
@@ -376,47 +394,25 @@ plot_pretraining_comparison(
     x_label='Number of Training Samples'
 )
 
-# Plot gain comparison with percentages
-plot_pretraining_comparison(
-    x_values=data_percents,
-    results_matrix_db=results_matrix_db,
-    models=[base_model] + pretrained_models,
-    save_path=results_folder,
-    plot_type='gain',
-    x_label='Training Data (%)'
-)
+# # Plot gain comparison with percentages
+# plot_pretraining_comparison(
+#     x_values=data_percents,
+#     results_matrix_db=-results_matrix_db,
+#     models=[base_model] + pretrained_models,
+#     save_path=results_folder,
+#     plot_type='gain',
+#     x_label='Training Data (%)'
+# )
 
-# Plot gain comparison with datapoints
-plot_pretraining_comparison(
-    x_values=n_points,
-    results_matrix_db=results_matrix_db,
-    models=[base_model] + pretrained_models,
-    save_path=results_folder + '/with_datapoints',
-    plot_type='gain',
-    x_label='Number of Training Samples'
-)
-
-#%%
-
-# Plot gain comparison with percentages
-plot_pretraining_comparison(
-    x_values=data_percents,
-    results_matrix_db=-results_matrix_db,
-    models=[base_model] + pretrained_models,
-    save_path=results_folder,
-    plot_type='gain',
-    x_label='Training Data (%)'
-)
-
-# Plot gain comparison with datapoints
-plot_pretraining_comparison(
-    x_values=n_points,
-    results_matrix_db=-results_matrix_db,
-    models=[base_model] + pretrained_models,
-    save_path=results_folder + '/with_datapoints',
-    plot_type='gain',
-    x_label='Number of Training Samples'
-)
+# # Plot gain comparison with datapoints
+# plot_pretraining_comparison(
+#     x_values=n_points,
+#     results_matrix_db=-results_matrix_db,
+#     models=[base_model] + pretrained_models,
+#     save_path=results_folder + '/with_datapoints',
+#     plot_type='gain',
+#     x_label='Number of Training Samples'
+# )
 
 
 # %%
