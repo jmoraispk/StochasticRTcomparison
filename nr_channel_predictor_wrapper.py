@@ -45,7 +45,7 @@ def train(chan_predictor,
           x_val: np.ndarray, y_val: np.ndarray, 
           initial_learning_rate: float, batch_size: int, num_epochs: int, 
           verbose: bool=False, patience: int = 10, patience_factor: float = 1.0,
-          best_model_path: str | None = None):
+          best_model_path: str | None = None, device_idx: str = 1):
     """
     Trains a channel predictor PyTorch model using offline training.
 
@@ -76,7 +76,7 @@ def train(chan_predictor,
             - elapsed_time (float): The total elapsed time for the training process.
     """
     
-    device = select_device(verbose=True)
+    device = select_device(verbose=True, device_idx=device_idx)
   
     # Initialize the channel prediction manager
     chanpre = torch_module.ChannelPredictorManager(chan_predictor, lr=initial_learning_rate, 
@@ -238,7 +238,7 @@ def info(chan_predictor):
 ###################################################################
 #                   Helpers
 ###################################################################
-def select_device(verbose: bool = False) -> torch.device:
+def select_device(verbose: bool = False, device_idx: int = 1) -> torch.device:
     """
     Selects the computational device for PyTorch operations.
 
@@ -252,7 +252,9 @@ def select_device(verbose: bool = False) -> torch.device:
         torch.device: The selected device, either GPU ('cuda') if available, or CPU ('cpu').
     """
     # Determine the device based on availability
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if device_idx is None:
+        device_idx = 0
+    device = torch.device(f"cuda:{device_idx}" if torch.cuda.is_available() else "cpu")
 
     # Verbose output for debugging and information
     if verbose:

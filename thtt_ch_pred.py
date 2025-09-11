@@ -50,15 +50,14 @@ from thtt_plot import plot_test_matrix
 # To plot H for specific antennas (uses only matplotlib)
 from thtt_ch_pred_plot import plot_iq_from_H
 
-
 NT = 2
 NR = 1
 
 N_SAMPLES = 200_000
 L = 60  # 55 for input, 40 for output
 
-SNR = 250 # [dB]
-MAX_DOOPLER = 10 # [Hz]
+SNR = 250 # [dB] NOTE: for RT, normalization must be consistent for w & w/o noise
+MAX_DOOPLER = 400 # [Hz]
 
 INTERPOLATE = True
 INTERP_FACTOR = 100
@@ -71,6 +70,8 @@ PRE_INTERP_SEQ_LEN = L if not INTERPOLATE else max(L // INTERP_FACTOR + 1, 2) # 
 #       (at least 2 samples needed for interpolation)
 
 # RT sample distance / INTERP_FACTOR = sample distance in the interpolated dataset
+
+GPU_IDX = 0
 
 #%% [ANY ENV] 1. Ray tracing data generation: Load data
 
@@ -280,10 +281,13 @@ import pandas as pd
 
 #%% [PYTORCH ENVIRONMENT] Train models
 
-models_folder = 'ch_pred_models5'
+models_folder = f'ch_pred_models_{MAX_DOOPLER}hz_{L}steps_INTERP_{INTERP_FACTOR}'
 os.makedirs(models_folder, exist_ok=True)
 
-models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5_10cm_interp_10']
+models = ['TDL-A', 'CDL-C', 'UMa', f'asu_campus_3p5_10cm_interp_{INTERP_FACTOR}']
+#models = ['TDL-A', 'CDL-C', 'UMa']
+# models = ['asu_campus_3p5']
+# models = ['TDL-A']
 
 horizons = [1, 3, 5, 10, 20, 40]
 L_IN = 20  # input sequence length
@@ -313,7 +317,8 @@ for model in models:
             train(ch_pred_model, x_train, y_train, x_val, y_val, 
                 initial_learning_rate=4e-4, batch_size=256, num_epochs=300, 
                 verbose=True, patience=60, patience_factor=1,
-                best_model_path=model_weights_file.replace('.pth', '_best.pth'))
+                best_model_path=model_weights_file.replace('.pth', '_best.pth'),
+                device_idx=GPU_IDX)
 
         save_model_weights(trained_model, model_weights_file)
 
@@ -357,8 +362,8 @@ print(f"Saved validation loss results to {models_folder}/validation_losses.csv")
 
 #%% Plot validation loss per horizon results
 
-models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5_10cm_interp_10']
-models_folder = 'ch_pred_models6'
+#models = ['TDL-A', 'CDL-C', 'UMa', 'asu_campus_3p5_10cm_interp_10']
+#models_folder = f'ch_pred_models_{MAX_DOOPLER}hz_{L}steps_INTERP_{INTERP_FACTOR}'
 
 # Load validation loss results from CSV
 df = pd.read_csv(f'{models_folder}/validation_losses.csv')
