@@ -49,6 +49,7 @@ from thtt_plot import plot_test_matrix
 
 # To plot H for specific antennas (uses only matplotlib)
 from thtt_ch_pred_plot import plot_iq_from_H
+from thtt_ch_pred_utils import compute_nmse_matrix
 
 NT = 2
 NR = 1
@@ -58,13 +59,13 @@ L = 60  # 20 for input, 40 for output
 N_SUBCARRIERS = 1
 
 SNR = 250 # [dB] NOTE: for RT, normalization must be consistent for w & w/o noise
-MAX_DOOPLER = 100 # [Hz]
+MAX_DOOPLER = 400 # [Hz]
 TIME_DELTA = 1e-3 # [s]
 
 INTERPOLATE = True
-INTERP_FACTOR = 2
+INTERP_FACTOR = 100
 
-DATA_FOLDER = f'ch_pred_data2_{N_SAMPLES//1000}k_{MAX_DOOPLER}hz_{L}steps'
+DATA_FOLDER = f'ch_pred_data_{N_SAMPLES//1000}k_{MAX_DOOPLER}hz_{L}steps'
 
 GPU_IDX = 0
 
@@ -416,58 +417,11 @@ plt.show()
 
 #%% Load models and test them on other datasets
 
-def build_xy_all(H_norm: np.ndarray, l_in: int, l_gap: int) -> tuple[np.ndarray, np.ndarray]:
-    """Build full x/y for all samples using given input length and gap.
-
-    Returns:
-        x_all: (n_samples, l_in, features)
-        y_all: (n_samples, features)
-    """
-    seq_len = H_norm.shape[1]
-    if l_in is None:
-        l_in = seq_len - l_gap - 1
-    y_idx = l_in + l_gap - 1
-    if l_in <= 0 or l_gap < 0 or (y_idx >= seq_len):
-        raise ValueError("Invalid l_in/l_gap for given sequence length")
-    x_all = H_norm[:, :l_in]
-    y_all = H_norm[:, y_idx]
-    return x_all, y_all
-
-
-def compute_nmse_matrix(models_list: list[str], horizon: int, l_in: int) -> np.ndarray:
-    """Load each trained model and evaluate NMSE on every dataset."""
-    results = np.zeros((len(models_list), len(models_list)), dtype=float)
-
-    for i, src_model in enumerate(models_list):
-        weights_path = f"{models_folder}/{src_model}_{horizon}_best.pth"
-        print(f"\nLoading model weights: {weights_path}")
-
-        ch_pred_model = construct_model(NT, hidden_size=128, num_layers=3)
-        ch_pred_model = load_model_weights(ch_pred_model, weights_path)
-
-        for j, tgt_model in enumerate(models_list):
-            print(f"Testing {src_model} on {tgt_model} (horizon={horizon})")
-            H_norm_tgt = np.load(f'{DATA_FOLDER}/H_norm_{tgt_model}.npy')
-            x_all, y_all = build_xy_all(H_norm_tgt, l_in=l_in, l_gap=horizon)
-
-            # Batched inference to prevent GPU OOM
-            batch_size = 128
-            preds = []
-            for start in range(0, x_all.shape[0], batch_size):
-                end = min(start + batch_size, x_all.shape[0])
-                y_pred_b = predict(ch_pred_model, x_all[start:end])
-                preds.append(y_pred_b)
-            y_pred = np.concatenate(preds, axis=0)
-
-            results[i, j] = nmse(y_pred, y_all)
-
-            print(f"  NMSE: {10*np.log10(results[i, j]):.1f} dB")
-
-    return results
-
-
 # Run cross-testing over all defined models
-results_matrix = compute_nmse_matrix(models, horizon=1, l_in=L_IN)
+results_matrix = compute_nmse_matrix(models, horizon=1, l_in=L_IN,
+                                     models_folder=models_folder,
+                                     data_folder=DATA_FOLDER,
+                                     num_tx_antennas=NT)
 
 # Plot confusion matrix (NMSE in dB inside the function)
 # plot_test_matrix(results_matrix, models)

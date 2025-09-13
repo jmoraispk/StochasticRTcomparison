@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+
 def plot_iq_from_H(H: np.ndarray, sample_idx: int | None = None, rx_idx: int | None = None):
     # H shape: (n_samples, n_rx, n_tx, n_time_steps), complex64
     i = np.random.randint(H.shape[0]) if sample_idx is None else sample_idx

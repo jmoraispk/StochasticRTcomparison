@@ -446,3 +446,65 @@ def split_data(H_norm: np.ndarray, train_ratio: float = 0.9,
     print(f"y_val.shape: {y_val.shape}")
 
     return x_train, y_train, x_val, y_val
+
+def build_xy_all(H_norm: np.ndarray, l_in: int, l_gap: int) -> tuple[np.ndarray, np.ndarray]:
+    """Build full x/y for all samples using given input length and gap.
+
+    Returns:
+        x_all: (n_samples, l_in, features)
+        y_all: (n_samples, features)
+    """
+    seq_len = H_norm.shape[1]
+    if l_in is None:
+        l_in = seq_len - l_gap - 1
+    y_idx = l_in + l_gap - 1
+    if l_in <= 0 or l_gap < 0 or (y_idx >= seq_len):
+        raise ValueError("Invalid l_in/l_gap for given sequence length")
+    x_all = H_norm[:, :l_in]
+    y_all = H_norm[:, y_idx]
+    return x_all, y_all
+
+def compute_nmse_matrix(models_list: list[str], horizon: int, l_in: int,
+                        models_folder: str, data_folder: str,
+                        num_tx_antennas: int, batch_size: int = 128) -> np.ndarray:
+    """Load each trained model and evaluate NMSE on every dataset.
+
+    Args:
+        models_list: List of dataset/model names.
+        horizon: Prediction gap (l_gap).
+        l_in: Input sequence length.
+        models_folder: Folder containing trained weight files.
+        data_folder: Folder containing normalized datasets 'H_norm_{name}.npy'.
+        num_tx_antennas: Number of transmit antennas (features per I/Q half).
+        batch_size: Inference batch size to avoid OOM.
+
+    Returns:
+        A matrix of NMSE values where [i, j] is performance of src=i tested on tgt=j.
+    """
+    from nr_channel_predictor_wrapper import construct_model, load_model_weights, predict
+
+    results = np.zeros((len(models_list), len(models_list)), dtype=float)
+
+    for i, src_model in enumerate(models_list):
+        weights_path = f"{models_folder}/{src_model}_{horizon}_best.pth"
+        print(f"\nLoading model weights: {weights_path}")
+
+        ch_pred_model = construct_model(num_tx_antennas, hidden_size=128, num_layers=3)
+        ch_pred_model = load_model_weights(ch_pred_model, weights_path)
+
+        for j, tgt_model in enumerate(models_list):
+            print(f"Testing {src_model} on {tgt_model} (horizon={horizon})")
+            H_norm_tgt = np.load(f'{data_folder}/H_norm_{tgt_model}.npy')
+            x_all, y_all = build_xy_all(H_norm_tgt, l_in=l_in, l_gap=horizon)
+
+            preds = []
+            for start in range(0, x_all.shape[0], batch_size):
+                end = min(start + batch_size, x_all.shape[0])
+                y_pred_b = predict(ch_pred_model, x_all[start:end])
+                preds.append(y_pred_b)
+            y_pred = np.concatenate(preds, axis=0)
+
+            results[i, j] = nmse(y_pred, y_all)
+            print(f"  NMSE: {10*np.log10(results[i, j]):.1f} dB")
+
+    return results

@@ -50,44 +50,72 @@ def plot_training_results(all_res: list, models: list, title: Optional[str] = No
         plt.savefig(save_path, bbox_inches='tight', dpi=300)
     plt.show()
 
-def plot_test_matrix(results_matrix: np.ndarray, models: list, save_path: Optional[str] = None) -> None:
+from matplotlib.colors import Normalize
+
+def plot_test_matrix(
+    results_matrix: np.ndarray,
+    models: list[str],
+    save_path: Optional[str] = None,
+    ax: Optional[plt.Axes] = None,
+    *,
+    annotate: bool = True,
+    cmap: str = "viridis_r",
+    vmin_db: Optional[float] = None,
+    vmax_db: Optional[float] = None,
+    tick_font: int = 9,
+    text_font: int = 10,
+    label_font: int = 11,
+    title: Optional[str] = None,
+) -> plt.Axes:
     """
-    Plot the test results matrix as a heatmap.
-    
-    Args:
-        results_matrix: Matrix of test results
-        models: List of model names
-        save_path: Optional path to save the plot
+    Plot NMSE matrix (in dB) as a heatmap. If ax is provided, draw there and DO NOT add a colorbar.
+    Returns the axes used (and you can grab its 'images[-1]' as the mappable).
     """
-    plt.figure(figsize=(10, 8), dpi=200)
-    
-    results_matrix_db = 10 * np.log10(results_matrix)
-    
-    # Create heatmap
-    plt.imshow(results_matrix_db, cmap='viridis_r')
-    cbar = plt.colorbar()
-    cbar.ax.tick_params(labelsize=14)
-    cbar.ax.set_ylabel('NMSE (dB)', fontsize=14)
-    
-    # Add text annotations
-    # (first position of results is the training model, second is the testing model)
-    for i in range(len(models)):
-        for j in range(len(models)):
-            plt.text(j, i, f'{results_matrix_db[i, j]:.1f}',
-                    ha='center', va='center', color='white' 
-                    if results_matrix_db[i, j] > np.mean(results_matrix_db) else 'black',
-                    fontsize=16)
-    
-    plt.xticks(np.arange(len(models)), models, rotation=45, fontsize=14)
-    plt.yticks(np.arange(len(models)), models, fontsize=14)
-    plt.title('Cross-Test Results (NMSE in dB)', fontsize=14)
-    plt.tight_layout()
-    plt.ylabel('Training Model', fontsize=16)
-    plt.xlabel('Testing Model', fontsize=16)
-    
-    if save_path:
-        plt.savefig(save_path, bbox_inches='tight', dpi=300)
-    plt.show()
+    own_fig = False
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(6, 5), dpi=200)
+        own_fig = True
+
+    M_db = 10 * np.log10(results_matrix)
+    if vmin_db is None: vmin_db = float(np.nanmin(M_db))
+    if vmax_db is None: vmax_db = float(np.nanmax(M_db))
+
+    im = ax.imshow(M_db, cmap=cmap, norm=Normalize(vmin=vmin_db, vmax=vmax_db))
+
+    # Annotations (optional, smaller font)
+    if annotate:
+        mean_val = float(np.nanmean(M_db))
+        for i in range(len(models)):
+            for j in range(len(models)):
+                val = M_db[i, j]
+                ax.text(
+                    j, i, f"{val:.1f}",
+                    ha="center", va="center",
+                    color="white" if val > mean_val else "black",
+                    fontsize=text_font,
+                )
+
+    ax.set_xticks(np.arange(len(models)))
+    ax.set_yticks(np.arange(len(models)))
+    ax.set_xticklabels(models, rotation=35, ha="right", fontsize=tick_font)
+    ax.set_yticklabels(models, fontsize=tick_font)
+    if title:
+        ax.set_title(title, fontsize=label_font)
+
+    # Only save/show when we own the figure (standalone usage)
+    if own_fig:
+        cbar = plt.colorbar(im, ax=ax)
+        cbar.ax.set_ylabel("NMSE (dB)", fontsize=label_font)
+        cbar.ax.tick_params(labelsize=tick_font)
+        ax.set_ylabel("Training Model", fontsize=label_font)
+        ax.set_xlabel("Testing Model", fontsize=label_font)
+        plt.tight_layout()
+        if save_path:
+            plt.savefig(save_path, bbox_inches="tight", dpi=300)
+        plt.show()
+
+    return ax
+
 
 def plot_pretraining_comparison(x_values: list,
                               results_matrix_db: np.ndarray,
