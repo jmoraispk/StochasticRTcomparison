@@ -277,24 +277,7 @@ for r, k in enumerate(interps):
             continue
         unified_models = set(ms) if unified_models is None else unified_models & ms
 
-# If intersection ended empty or None, fall back to the order in MODEL_STYLES that appear anywhere
-if not unified_models:
-    seen = []
-    for r, k in enumerate(interps):
-        for c, d in enumerate(dopplers):
-            folder = base_dir / f"ch_pred_models_{d}hz_{steps}steps_INTERP_{k}"
-            csv_path = folder / csv_name
-            if not csv_path.exists():
-                continue
-            df = pd.read_csv(csv_path)
-            ms = detect_models(df)
-            for m in ms:
-                if m not in seen:
-                    seen.append(m)
-    unified_models = [m for m in MODEL_STYLES if m in seen]
-else:
-    # keep stable order per MODEL_STYLES
-    unified_models = [m for m in MODEL_STYLES if m in unified_models]
+unified_models = [m for m in MODEL_STYLES if m in unified_models]
 
 # Second pass: plot each cell using the unified model set
 handles_for_legend = {}
@@ -338,5 +321,195 @@ fig.savefig(base_dir / out_name, dpi=300, bbox_inches="tight")
 plt.close(fig)
 print(f"[OK] Saved {base_dir / out_name}")
 
-#%%
+#%% COMPUTE CROSS-TEST NMSE MATRIX
 
+from pathlib import Path
+from typing import Optional
+import numpy as np
+import matplotlib.pyplot as plt
+
+from thtt_ch_pred_utils import compute_nmse_matrix
+
+# ===== USER CONFIG =====
+base_dir  = Path(".").resolve()
+steps     = 60
+N_SAMPLES = 200_000
+dopplers  = [10, 100, 400]   # columns (left→right)
+interps   = [100, 10, 2]     # rows (top→bottom)
+models_base = ['TDL-A', 'CDL-C', 'UMa']   # ASU handled separately
+HORIZON   = 1
+cache_dir = base_dir / "nmse_cache"       # where matrices are stored
+grid_png  = base_dir / "nmse-confusion-grid.png"
+# =======================
+
+# ---- ASU helpers ----
+def asu_model_name(interp_factor: int) -> str:
+    """Exact model folder name for loading (used by compute)."""
+    return f"asu_campus_3p5_10cm_interp_{interp_factor}"
+
+def asu_label(interp_factor: int) -> str:
+    """Pretty label for plotting (used by plot)."""
+    return "ASU-40mm" if interp_factor == 2 else f"ASU-{100 // interp_factor}mm"
+
+# ---- CACHING LAYOUT ----
+def cell_cache_path(interp: int, dop: int) -> Path:
+    """Standard filename for a (row=interp, col=doppler) cell."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir / f"nmse_matrix_interp{interp}_dop{dop}.npz"
+
+# ================== STAGE 1: COMPUTE & CACHE ==================
+def compute_and_cache_confusion_grid(L_IN, NT, overwrite: bool = False) -> None:
+    """
+    Compute the NMSE matrices for all (interp, doppler) cells and save to cache_dir as .npz.
+    No plotting happens here.
+    """
+    for interp in interps:
+        for dop in dopplers:
+            out_path = cell_cache_path(interp, dop)
+            if out_path.exists() and not overwrite:
+                print(f"[SKIP] {out_path.name} exists (use overwrite=True to redo).")
+                continue
+
+            models_folder = base_dir / f"ch_pred_models_{dop}hz_{steps}steps_INTERP_{interp}"
+            data_folder   = base_dir / f"ch_pred_data_{N_SAMPLES//1000}k_{dop}hz_{steps}steps"
+
+            models_for_compute = [*models_base, asu_model_name(interp)]
+            display_labels     = [*models_base, asu_label(interp)]
+
+            # ---- YOUR compute function (must be defined/imported) ----
+            results_matrix = compute_nmse_matrix(
+                models_for_compute,
+                horizon=HORIZON,
+                l_in=L_IN,
+                models_folder=models_folder,
+                data_folder=data_folder,
+                num_tx_antennas=NT
+            )
+
+            # Persist everything needed to plot later
+            np.savez_compressed(
+                out_path,
+                results_matrix=results_matrix,
+                display_labels=np.array(display_labels, dtype=object),
+                models_for_compute=np.array(models_for_compute, dtype=object),
+                interp=np.int32(interp),
+                doppler=np.int32(dop),
+                models_folder=str(models_folder),
+                data_folder=str(data_folder),
+            )
+            print(f"[OK] Cached {out_path.name}  shape={results_matrix.shape}")
+
+compute_and_cache_confusion_grid(L_IN=steps, NT=NT, overwrite=False)
+
+#%% Plot cross-test NMSE matrix
+
+# ================== STAGE 2: LOAD & PLOT ==================
+def load_cell(interp: int, dop: int):
+    p = cell_cache_path(interp, dop)
+    if not p.exists():
+        raise FileNotFoundError(f"Missing cache file: {p}")
+    z = np.load(p, allow_pickle=True)
+    return {
+        "M": z["results_matrix"],
+        "labels": list(z["display_labels"]),
+        "interp": int(z["interp"]),
+        "doppler": int(z["doppler"]),
+    }
+
+# --- Much better grid plot from cache (uniform colorbar, clean labels) ---
+from pathlib import Path
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize
+import matplotlib as mpl
+
+# assumes: interps, dopplers, base_dir, grid_png, load_cell are defined as in your cache code
+
+def plot_confusion_grid_from_cache(
+    *,
+    figsize=(12, 8),
+    dpi=300,
+    cmap="viridis_r",
+    annotate=True,
+    vmin_db: Optional[float] = None,
+    vmax_db: Optional[float] = None,
+    suptitle="Cross-Test NMSE (dB) — Columns: Doppler, Rows: Interp (from cache)"
+) -> None:
+    """Render the 3x3 grid from cached .npz files with tight spacing,
+    y-axis labels on the first column, and one shared colorbar."""
+    # 1) Load all cells
+    cells = {}
+    all_vals = []
+    for r, interp in enumerate(interps):
+        for c, dop in enumerate(dopplers):
+            try:
+                cell = load_cell(interp, dop)  # {"M":..., "labels":..., ...}
+                cells[(r, c)] = cell
+                all_vals.append(10 * np.log10(cell["M"]))
+            except FileNotFoundError:
+                cells[(r, c)] = None
+
+    # 2) Global color limits
+    if not all_vals:
+        raise RuntimeError("No cached matrices found.")
+    stacked = np.concatenate([x.ravel() for x in all_vals])
+    if vmin_db is None: vmin_db = float(np.nanmin(stacked))
+    if vmax_db is None: vmax_db = float(np.nanmax(stacked))
+
+    fig, axes = plt.subplots(
+        nrows=3, ncols=3, figsize=figsize, dpi=dpi,
+        sharex=True, sharey=True,
+        gridspec_kw={"wspace": -0.5, "hspace": 0.05}  # tight spacing
+    )
+
+    for r, interp in enumerate(interps):
+        for c, dop in enumerate(dopplers):
+            ax = axes[r, c]
+            cell = cells[(r, c)]
+            if cell is None:
+                ax.axis("off")
+                continue
+
+            labels = cell["labels"]
+
+            # Column titles
+            if r == 0:
+                ax.set_title(f"Doppler {dop} Hz", fontsize=11, pad=4)
+            # Row labels on first column
+            if c == 0:
+                ax.set_ylabel(f"Interp {interp}\nTraining Model", fontsize=11, labelpad=6)
+
+            # Plot without per-axes colorbar
+            plot_test_matrix(
+                cell["M"], labels, ax=ax,
+                annotate=annotate,
+                cmap=cmap,
+                vmin_db=vmin_db,
+                vmax_db=vmax_db,
+                tick_font=8, text_font=8, label_font=9,
+                title=None
+            )
+
+            # Hide inner tick labels except bottom row / first column
+            if r < len(interps) - 1:
+                ax.set_xticklabels([])
+            if c > 0:
+                ax.set_yticklabels([])
+
+    # Single shared colorbar
+    norm = plt.Normalize(vmin=vmin_db, vmax=vmax_db)
+    sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=axes, location="right", fraction=0.04, pad=0.02)
+    cbar.ax.set_ylabel("NMSE (dB)", fontsize=11)
+    cbar.ax.tick_params(labelsize=9)
+
+    fig.suptitle(suptitle, x=0.62, y=0.98, fontsize=12)
+    fig.tight_layout(rect=(0, 0, 0.95, 0.95))  # tighten after adding suptitle
+
+    plt.show()
+    fig.savefig(grid_png, dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[OK] Saved {grid_png}")
+
+plot_confusion_grid_from_cache(annotate=True, vmin_db=-30, vmax_db=0)
