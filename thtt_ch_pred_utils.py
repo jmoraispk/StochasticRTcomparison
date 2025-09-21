@@ -224,7 +224,6 @@ def interpolate_dataset_from_seqs(
 
     # Ensure ndarray of ints for sequences
     sequences = np.asarray(sequences, dtype=int)
-    n_sequences = len(sequences)
 
     # Define arrays/fields used
     ray_fields = ['rx_pos', 'power', 'phase', 'delay', 'aoa_az', 'aod_az', 'aoa_el', 'aod_el']
@@ -247,6 +246,12 @@ def interpolate_dataset_from_seqs(
         for k in range(seq.size - 1):
             i1 = int(seq[k])
             i2 = int(seq[k + 1])
+
+            # TODO: Endpoint handling
+            # If we want to have the sequence-level endpoint, we can check when
+            # if k == seq.size - 2: i3 = 1
+            # and in the last 3 lines of this loop do: n_points + i3 and endpoint = bool(i3)
+            # This will add the very last sample at the end of the sequence.
 
             # Determine number of interpolation points for this segment
             if step_meters is not None and points_per_segment is None:
@@ -289,13 +294,7 @@ def interpolate_dataset_from_seqs(
     for field in interpolation_fields:
         base = dataset[field]
         interp_vals = _interpolate_field(base)
-        # Append final endpoints of each sequence
-        final_idxs = sequences[:, -1] if n_sequences > 0 else np.array([], dtype=int)
-        final_vals = base[final_idxs] if final_idxs.size > 0 else base[0:0]
-        if interp_vals.shape[0] > 0:
-            concatenated_data[field] = np.concatenate([interp_vals, final_vals], axis=0)
-        else:
-            concatenated_data[field] = final_vals
+        concatenated_data[field] = interp_vals
 
     # Replicate interaction fields (copy from first point of each segment)
     for field in replication_fields:
@@ -304,12 +303,7 @@ def interpolate_dataset_from_seqs(
             replicated = base[start_idx]
         else:
             replicated = base[0:0]
-        final_idxs = sequences[:, -1] if n_sequences > 0 else np.array([], dtype=int)
-        final_vals = base[final_idxs] if final_idxs.size > 0 else base[0:0]
-        if replicated.shape[0] > 0:
-            concatenated_data[field] = np.concatenate([replicated, final_vals], axis=0)
-        else:
-            concatenated_data[field] = final_vals
+        concatenated_data[field] = replicated
 
     # Create new dataset with shared parameters
     new_dataset_params = {}
@@ -325,6 +319,110 @@ def interpolate_dataset_from_seqs(
     new_dataset.tx_pos = dataset.tx_pos
 
     # Assign all interpolated/replicated arrays
+    for field in interpolation_fields + replication_fields:
+        if field in concatenated_data:
+            new_dataset[field] = concatenated_data[field]
+
+    return new_dataset
+
+def interpolate_dataset_from_seqs_old(
+    dataset: dm.Dataset | dm.MacroDataset,
+    sequences: np.ndarray,
+    step_meters: float | None = 0.5,
+    points_per_segment: int | None = None
+) -> dm.Dataset:
+    """Create a new Dataset by interpolating along each sequence of indices.
+
+    This function takes sequences of indices into a dataset and creates a new dataset by interpolating
+    between consecutive points in each sequence. The interpolation can be done either:
+    - Based on physical distance (step_meters): Points are placed every step_meters along each segment
+    - Based on fixed count (points_per_segment): A fixed number of evenly-spaced points per segment
+
+    Args:
+        dataset: Source dataset containing the data to interpolate
+        sequences: Array of shape [n_sequences, sequence_length] containing indices into dataset
+        step_meters: Distance between interpolated points. Set to None to use points_per_segment.
+        points_per_segment: Number of points per segment. Set to None to use step_meters.
+
+    Returns:
+        A new Dataset containing the interpolated data with shape [n_total_points, ...] where
+        n_total_points depends on the interpolation parameters and sequence lengths.
+
+    The following fields are interpolated:
+        - rx_pos: Receiver positions [n_points, 3]
+        - power, phase, delay: Ray parameters [n_points, n_rays] 
+        - aoa_az, aod_az, aoa_el, aod_el: Angles [n_points, n_rays]
+        - inter: Interaction types [n_points, n_rays] (copied from first point)
+        - inter_pos: Interaction positions [n_points, n_rays, n_interactions, 3] (if present)
+    """
+    # Unwrap MacroDataset if necessary
+    dataset = dataset.datasets[0] if isinstance(dataset, dm.MacroDataset) else dataset
+
+    n_sequences = len(sequences)
+
+    # Define arrays to interpolate
+    ray_fields = ['rx_pos', 'power', 'phase', 'delay', 'aoa_az', 'aod_az', 'aoa_el', 'aod_el']
+    interpolation_fields = ray_fields + (['inter_pos'] if dataset.inter_pos is not None else [])
+    replication_fields = ['inter'] if dataset.inter is not None else []
+
+    # Initialize accumulators for interpolated data
+    expanded_data = {field: [] for field in interpolation_fields + replication_fields}
+
+    for seq_idx in tqdm(range(n_sequences), desc="Interpolating sequences"):
+        sequence = sequences[seq_idx]
+        for segment_idx in range(len(sequence) - 1):
+            point1_idx = int(sequence[segment_idx])
+            point2_idx = int(sequence[segment_idx + 1])
+
+            # Determine interpolation points for this segment
+            if step_meters is not None and points_per_segment is None:
+                # Distance-based interpolation
+                pos1, pos2 = dataset.rx_pos[point1_idx], dataset.rx_pos[point2_idx]
+                segment_distance = float(np.linalg.norm(pos2 - pos1))
+                n_points = max(1, int(np.ceil(segment_distance / float(step_meters))))
+            else:
+                # Fixed count interpolation
+                n_points = 1 if points_per_segment is None else max(1, int(points_per_segment))
+            
+            interp_points = np.linspace(0.0, 1.0, n_points, endpoint=False)
+            if interp_points.size == 0:
+                continue
+
+            # Interpolate ray parameters
+            for field in interpolation_fields:
+                val1, val2 = dataset[field][point1_idx], dataset[field][point2_idx]
+                expanded_data[field].append(interpolate_percentage(val1, val2, interp_points))
+
+            # Copy interaction data from first point
+            for field in replication_fields:
+                data = dataset[field][point1_idx]
+                expanded_data[field].append(np.tile(data[None, ...], (len(interp_points), 1)))
+
+        # Append final endpoint of the sequence explicitly
+        final_idx = sequence[-1]
+        for field in interpolation_fields + replication_fields:
+            expanded_data[field].append(np.expand_dims(dataset[field][final_idx], 0))
+
+    # Concatenate all interpolated data
+    concatenated_data: dict[str, np.ndarray] = {}
+    for field, data_list in expanded_data.items():
+        if len(data_list):
+            concatenated_data[field] = np.concatenate(data_list, axis=0)
+
+    # Create new dataset with shared parameters
+    new_dataset_params = {}
+    for param in ['scene', 'materials', 'load_params', 'rt_params']:
+        if hasattr(dataset, param):
+            new_dataset_params[param] = getattr(dataset, param)
+
+    new_dataset_params['n_ue'] = int(concatenated_data['rx_pos'].shape[0])
+    new_dataset_params['parent_name'] = dataset.get('parent_name', dataset.name)
+    new_dataset_params['name'] = f"{dataset.name}_interp"
+
+    new_dataset = dm.Dataset(new_dataset_params)
+    new_dataset.tx_pos = dataset.tx_pos
+    
+    # Assign all interpolated arrays
     for field in interpolation_fields + replication_fields:
         if field in concatenated_data:
             new_dataset[field] = concatenated_data[field]
