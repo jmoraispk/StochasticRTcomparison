@@ -83,7 +83,7 @@ from thtt_plot import (plot_training_results, plot_test_matrix,
 base_config = ModelConfig(
     # Model architecture
     encoded_dim=64,   # 32x reduction (NC=16 * n_ant=64 * 2 IQ / 64 = 32x)
-    n_refine_nets=6,  # != 1 for CSInetPlus | -1 for TransformerAE
+    n_refine_nets=6,
     n_taps=NC,
     n_antennas=NT,
     
