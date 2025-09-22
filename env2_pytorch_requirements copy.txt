@@ -3,3 +3,5 @@ jupyter
 scikit-learn
 einops
 pandas
+matplotlib
+deepmimo
