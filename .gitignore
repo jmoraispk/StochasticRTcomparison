@@ -17,6 +17,7 @@ results*/
 matlab_examples/
 ChPredMATLABExample/
 ch_pred_*
+all_ch_pred_RT_data/*
 nmse_cache/*
 new_rt_*
 
