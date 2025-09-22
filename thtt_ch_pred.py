@@ -59,15 +59,19 @@ L = 60  # 20 for input, 40 for output
 N_SUBCARRIERS = 1
 
 SNR = 250 # [dB] NOTE: for RT, normalization must be consistent for w & w/o noise
-MAX_DOOPLER = 400 # [Hz]
+MAX_DOOPLER = 3 # [Hz]
 TIME_DELTA = 1e-3 # [s]
 
 INTERPOLATE = True
-INTERP_FACTOR = 100
+INTERP_FACTOR = 10  # final interpolated numbers of points
+                     # = number of points between samples - 2 (endpoints)
+# Note: if samples are 1m apart, and we want 10cm between points, 
+#       set INTERP_FACTOR = 102. 1 m / (102 - 2) = 10cm
 
 DATA_FOLDER = f'ch_pred_data_{N_SAMPLES//1000}k_{MAX_DOOPLER}hz_{L}steps'
 
 GPU_IDX = 0
+SEED = 42
 
 #%% [ANY ENV] 1. Ray tracing data generation: Load data
 
@@ -75,6 +79,7 @@ matrices = ['rx_pos', 'tx_pos', 'aoa_az', 'aod_az', 'aoa_el', 'aod_el',
             'delay', 'power', 'phase', 'inter']
 
 dataset = dm.load('asu_campus_3p5_10cm', matrices=matrices)
+dataset = dm.load('asu_campus_3p5_10cm')
 # dataset = dm.load('asu_campus_3p5', matrices=matrices)
 
 #%% [ANY ENV] (optional) Ray tracing data: Make video of all sequences
@@ -120,8 +125,9 @@ print(f"all_seqs_mat_t.shape: {all_seqs_mat_t.shape}")
 
 # Number of sequences to sample from original sequences
 final_samples = min(N_SAMPLES, len(all_seqs_mat_t))
+np.random.seed(SEED)
 idxs = np.random.choice(len(all_seqs_mat_t), final_samples, replace=False)
-all_seqs_mat_t2 = all_seqs_mat_t[idxs]  # [:2000] # generate less sequences for testing
+all_seqs_mat_t2 = all_seqs_mat_t[idxs][:100] # generate less sequences for testing
 print(f"all_seqs_mat_t2.shape: {all_seqs_mat_t2.shape}")
 
 #%% [ANY ENV] 4. Ray tracing data generation: Interpolate sequences
@@ -139,6 +145,17 @@ if INTERPOLATE:
     )
     print(f"dataset_ready.n_ue: {dataset_ready.n_ue}")
     tgt_shape = (all_seqs_mat_t2.shape[0], -1, NR, NT, 1)
+
+# from thtt_ch_pred_utils import interpolate_dataset_from_seqs_old
+
+# if INTERPOLATE:
+#     dataset_ready_old = interpolate_dataset_from_seqs_old(
+#         dataset,
+#         all_seqs_mat_t2,
+#         points_per_segment=INTERP_FACTOR
+#     )
+#     print(f"dataset_ready_old.n_ue: {dataset_ready_old.n_ue}")
+#     tgt_shape = (all_seqs_mat_t2.shape[0], -1, NR, NT, 1)
 
 #%% [ANY ENV] 5. Ray tracing data generation: Generate channels & Process data
 
@@ -161,7 +178,29 @@ ch_params.ofdm.selected_subcarriers = np.arange(N_SUBCARRIERS)
 ch_params.ofdm.bandwidth = 15e3 * N_SUBCARRIERS # [Hz]
 ch_params.doppler = True  # Enable doppler computation
 
-dataset_ready.set_doppler(MAX_DOOPLER)  # Add the same doppler to all users / paths
+doppler_way = 1
+
+# Way 1 of adding doppler: same doppler to all users / paths
+if doppler_way == 1:
+    # Mean absolute alignment = 1/2 * MAX_DOOPLER
+    dataset_ready.set_doppler(MAX_DOOPLER / 2)  # Add the same doppler to all users / paths
+
+# Way 2 of adding doppler: different doppler per user / path assuming const. speed & direction
+if doppler_way == 2:
+    dataset_ready.rx_vel = np.array([10, 0, 0]) # [m/s] along x-axis
+
+# Way 3 of adding doppler: different doppler per user / path assuming const. speed, 
+#                          with direction derived from the path geometry
+if doppler_way == 3:
+    dataset_ready.rx_vel = np.array([10, 0, 0]) # [m/s] along x-axis
+    # TODO!
+
+# Way 4 of adding doppler: different doppler per user / path deriving speed & direction 
+#                          from the path geometry
+if doppler_way == 4:
+    pass # not necessary here: speeds are constant
+    # when we have uniform sampling & interpolation
+
 H = dataset_ready.compute_channels(ch_params, times=np.arange(L) * TIME_DELTA)
 print(f"H.shape: {H.shape}")  # (n_samples * L, NR, NT, N_SUBCARRIERS, L)
 
@@ -181,9 +220,9 @@ for seq_idx in tqdm(range(n_seqs), desc="Taking sequences"):
 
 print(f"H_seq.shape: {H_seq.shape}") # (n_samples, seq_len, n_rx_ant, n_tx_ant, subcarriers)
 
-# Plot H - transform to fit: (n_samples, n_rx_ant, n_tx_ant, seq_len)
+# Plot H - transform into (n_samples, n_rx_ant, n_tx_ant, seq_len)
 H_3_plot = np.transpose(H_seq[:, :, :, :, 0], (0, 2, 3, 1))
-plot_sample_idx, plot_rx_idx = plot_iq_from_H(H_3_plot)
+# plot_sample_idx, plot_rx_idx = plot_iq_from_H(H_3_plot, sample_idx=i)
 
 # Unified post-processing and saving
 H_norm, H_noisy_norm, h_max = process_and_save_channel(
@@ -195,7 +234,7 @@ H_norm, H_noisy_norm, h_max = process_and_save_channel(
 )
 
 # # Plot normalized version
-plot_iq_from_H(H_3_plot / h_max, plot_sample_idx, plot_rx_idx)
+# plot_iq_from_H(H_3_plot / h_max, plot_sample_idx, plot_rx_idx)
 
 #%% [SIONNA ENV] Stochastic data generation: Import and Create Data Generator
 
@@ -212,7 +251,7 @@ data_cfg = DataConfig(
     n_time_steps = L,
     samp_freq = 1e3,
     batch_size = 10_000,
-    seed = 42
+    seed = SEED
 )
 
 model = 'UMa'
