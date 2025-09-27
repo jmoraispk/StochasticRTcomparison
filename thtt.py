@@ -368,6 +368,7 @@ os.makedirs(results_folder, exist_ok=True)
 #%% Plot results for publication
 
 # np.save(results_folder + '/pretraining_results.npy', results_matrix_db
+results_matrix_db = np.load(results_folder + '/pretraining_results.npy')
 
 data_percents = [0.5, 1, 5, 10, 40, 90]  # Percentages of training data to use
 

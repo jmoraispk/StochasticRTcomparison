@@ -18,7 +18,7 @@ from thtt_ch_pred_utils import (
 NT = 2
 NR = 1
 
-N_SAMPLES = 200_000
+N_SAMPLES = 400_000
 L = 60  # 20 for input, 40 for output
 N_SUBCARRIERS = 1
 
@@ -35,8 +35,10 @@ matrices = ['rx_pos', 'tx_pos', 'aoa_az', 'aod_az', 'aoa_el', 'aod_el',
 
 #%%
 
-DOPPLERS = [0, 10, 30, 100, 200]
-INTERPOLATIONS = [5, 10, 30, 100]
+# DOPPLERS = [0, 10, 30, 100, 200]
+# INTERPOLATIONS = [5, 10, 30, 100]
+DOPPLERS = [10] # NEXT: 30
+INTERPOLATIONS = [100] # NEXT: 5
 
 for doppler in DOPPLERS:
     for interp in INTERPOLATIONS:
@@ -45,8 +47,6 @@ for doppler in DOPPLERS:
         dataset = dm.load('asu_campus_3p5_10cm', matrices=matrices)
 
         gc.collect()
-
-        # continue
 
         MAX_DOOPLER = doppler # [Hz]
         INTERP_FACTOR = interp

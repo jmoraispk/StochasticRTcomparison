@@ -258,7 +258,7 @@ def plot_folder_on_ax(folder: Path, ax, models_in_use: list[str] | None = None):
     return models
 
 # ---------- build grid ----------
-fig, axes = plt.subplots(nrows=3, ncols=3, figsize=(12, 9), dpi=300, sharex=True, sharey=True)
+fig, axes = plt.subplots(nrows=3, ncols=3, figsize=(12, 9), dpi=500, sharex=True, sharey=True)
 
 # First pass: determine a unified model set (intersection across all reachable CSVs)
 unified_models = None

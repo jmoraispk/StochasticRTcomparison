@@ -3,6 +3,7 @@ import numpy as np
 from typing import Optional
 import os
 import matplotlib as mpl
+from matplotlib.colors import Normalize
 
 def plot_training_results(all_res: list, models: list, title: Optional[str] = None,
                           save_path: Optional[str] = None) -> None:
@@ -50,8 +51,6 @@ def plot_training_results(all_res: list, models: list, title: Optional[str] = No
         plt.savefig(save_path, bbox_inches='tight', dpi=300)
     plt.show()
 
-from matplotlib.colors import Normalize
-
 def plot_test_matrix(
     results_matrix: np.ndarray,
     models: list[str],
@@ -77,8 +76,10 @@ def plot_test_matrix(
         own_fig = True
 
     M_db = 10 * np.log10(results_matrix)
-    if vmin_db is None: vmin_db = float(np.nanmin(M_db))
-    if vmax_db is None: vmax_db = float(np.nanmax(M_db))
+    if vmin_db is None:
+        vmin_db = float(np.nanmin(M_db))
+    if vmax_db is None:
+        vmax_db = float(np.nanmax(M_db))
 
     im = ax.imshow(M_db, cmap=cmap, norm=Normalize(vmin=vmin_db, vmax=vmax_db))
 
