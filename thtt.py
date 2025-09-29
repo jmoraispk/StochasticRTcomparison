@@ -387,7 +387,8 @@ plot_pretraining_comparison(
     plot_type='performance',
     x_label='Training Samples',  # 'Training Data (%)'
     x_logscale=True, 
-    legend_labels=['Random initial weights', 'Pre-trained in NYC (RT)', 'Pre-trained in CDL-C', 'Pre-trained in UMa']
+    legend_labels=['Random initial weights', 'Pre-trained in NYC (RT)', 'Pre-trained in CDL-C', 'Pre-trained in UMa'],
+    legend_order=[0, 2, 3, 1]
 )
 
 

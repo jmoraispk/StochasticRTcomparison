@@ -125,7 +125,8 @@ def plot_pretraining_comparison(x_values: list,
                               plot_type: str = 'performance',
                               x_label: str = 'Training Data (%)',
                               x_logscale: bool = False,
-                              legend_labels: Optional[list] = None) -> None:
+                              legend_labels: Optional[list] = None,
+                              legend_order: Optional[list[int]] = None) -> None:
     """Plot pre-training comparison results.
     
     Args:
@@ -138,6 +139,7 @@ def plot_pretraining_comparison(x_values: list,
                 otherwise large numbers will be formatted with commas
         x_logscale: If True, use logarithmic scale for the x-axis.
         legend_labels: Optional list of custom legend labels (must match number of plotted series).
+        legend_order: Optional list of indices specifying legend entry order (0-based).
     """
     # Set up publication-quality plot settings
     plt.style.use('seaborn-v0_8-paper')
@@ -197,7 +199,15 @@ def plot_pretraining_comparison(x_values: list,
         legend_loc = 'best'
         filename = 'pretrain_gain_comparison'
 
-    ax.legend(title='Model', loc=legend_loc)
+    # Legend handling with optional reordering
+    handles, leg_labels = ax.get_legend_handles_labels()
+    if legend_order is not None:
+        # Keep only valid indices and preserve order provided
+        order = [idx for idx in legend_order if 0 <= idx < len(handles)]
+        if len(order) > 0:
+            handles = [handles[i] for i in order]
+            leg_labels = [leg_labels[i] for i in order]
+    ax.legend(handles, leg_labels, title='Model', loc=legend_loc)
 
     # Common plot settings
     ax.set_xlabel(x_label)
