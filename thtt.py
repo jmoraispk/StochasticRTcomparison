@@ -369,7 +369,8 @@ os.makedirs(results_folder, exist_ok=True)
 
 # np.save(results_folder + '/pretraining_results.npy', results_matrix_db
 results_folder = './ch_compression_results/results4'
-results_matrix_db = np.load(results_folder + '/pretraining_results.npy')
+results_path = results_folder + '/pretraining_results.npy'
+results_matrix_db = np.load(results_path)
 
 data_percents = [0.5, 1, 5, 10, 40, 90]  # Percentages of training data to use
 
@@ -384,8 +385,9 @@ plot_pretraining_comparison(
     models=[base_model] + pretrained_models,
     save_path=results_folder + '/with_datapoints',
     plot_type='performance',
-    x_label='Number of Training Samples',  # 'Training Data (%)'
-    x_logscale=True
+    x_label='Training Samples',  # 'Training Data (%)'
+    x_logscale=True, 
+    legend_labels=['Random initial weights', 'Pre-trained in NYC (RT)', 'Pre-trained in CDL-C', 'Pre-trained in UMa']
 )
 
 

@@ -123,7 +123,9 @@ def plot_pretraining_comparison(x_values: list,
                               models: list,
                               save_path: str = './results',
                               plot_type: str = 'performance',
-                              x_label: str = 'Training Data (%)') -> None:
+                              x_label: str = 'Training Data (%)',
+                              x_logscale: bool = False,
+                              legend_labels: Optional[list] = None) -> None:
     """Plot pre-training comparison results.
     
     Args:
@@ -134,20 +136,26 @@ def plot_pretraining_comparison(x_values: list,
         plot_type: Either 'performance' or 'gain' to choose plot type
         x_label: Label for x-axis. If it contains '%', values will be formatted as percentages,
                 otherwise large numbers will be formatted with commas
+        x_logscale: If True, use logarithmic scale for the x-axis.
+        legend_labels: Optional list of custom legend labels (must match number of plotted series).
     """
     # Set up publication-quality plot settings
     plt.style.use('seaborn-v0_8-paper')
     mpl.rcParams['figure.figsize'] = (10, 6)
     mpl.rcParams['figure.dpi'] = 300
     mpl.rcParams['font.size'] = 12
-    mpl.rcParams['axes.labelsize'] = 14
+    mpl.rcParams['axes.labelsize'] = 18
     mpl.rcParams['axes.titlesize'] = 16
+    mpl.rcParams['xtick.labelsize'] = 14       # x-tick label font size
+    mpl.rcParams['ytick.labelsize'] = 14       # y-tick label font size
     mpl.rcParams['lines.linewidth'] = 2.5
-    mpl.rcParams['lines.markersize'] = 8
-    mpl.rcParams['legend.fontsize'] = 12
+    mpl.rcParams['lines.markersize'] = 12
+    mpl.rcParams['legend.fontsize'] = 14
     mpl.rcParams['legend.frameon'] = True
-    mpl.rcParams['legend.framealpha'] = 0.8
-    mpl.rcParams['legend.edgecolor'] = '0.8'
+    mpl.rcParams['legend.framealpha'] = 1
+    mpl.rcParams['legend.edgecolor'] = 'grey'
+    mpl.rcParams['legend.title_fontsize'] = 15
+    mpl.rcParams['axes.labelpad'] = 10
 
     # Define consistent markers and colors
     markers = ['o', 's', '^', 'D']  # Different marker for each line
@@ -155,32 +163,41 @@ def plot_pretraining_comparison(x_values: list,
 
     # Create figure
     _, ax = plt.subplots()
+    
+    if x_logscale:
+        ax.set_xscale('log')
 
     # Plot each model's performance
     k = 0 if plot_type == 'performance' else 1
     gains = results_matrix_db[:, 1:] - results_matrix_db[:, :1]
     y = results_matrix_db if plot_type == 'performance' else gains
+
+    expected_len = len(models) - k
+    if legend_labels is not None and len(legend_labels) == expected_len:
+        labels = legend_labels
+    else:
+        labels = [m.replace('_', ' ') for m in models[k:]]
+
     for i, model in enumerate(models[k:]):
         ax.plot(x_values, y[:, i], 
-                marker=markers[i+k], label=model.replace('_', ' '),
+                marker=markers[i+k], label=labels[i],
                 color=colors[i+k],
                 markerfacecolor='white', markeredgewidth=2)
 
     if plot_type == 'performance':
         ax.set_ylabel('NMSE (dB)')
-        ax.set_title('Model Performance vs Training Data Size')
-        ax.legend(title='Models', loc='upper right')
-        
+        # ax.set_title('Model Performance vs Training Data Size')
+        legend_loc = 'upper right'
         filename = 'pretrain_comparison'
 
     else:  # gain plot
         ax.axhline(y=0, color='k', linestyle='--', alpha=0.3)
-
         ax.set_ylabel('NMSE Gain over Base Model (dB)')
-        ax.set_title('Performance Gain from Pre-training')
-        ax.legend(title='Pre-trained Models')
-        
+        # ax.set_title('Performance Gain from Pre-training')
+        legend_loc = 'best'
         filename = 'pretrain_gain_comparison'
+
+    ax.legend(title='Model', loc=legend_loc)
 
     # Common plot settings
     ax.set_xlabel(x_label)
@@ -206,4 +223,4 @@ def plot_pretraining_comparison(x_values: list,
     plt.savefig(f'{save_path}/{filename}.pdf', bbox_inches='tight', dpi=300)
     plt.savefig(f'{save_path}/{filename}.png', bbox_inches='tight', dpi=300)
 
-    plt.show()
+    return ax
