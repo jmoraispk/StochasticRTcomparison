@@ -25,7 +25,7 @@ from data_feed import DataFeed
 
 # Models
 from CsinetPlus import CsinetPlus
-from transformerAE import TransformerAE
+# from transformerAE import TransformerAE
 
 
 def set_random_state(seed: int = 42):
@@ -139,7 +139,8 @@ def train_model(
     # instantiate the model and send to GPU
     print(f'Creating net with {n_refine_nets} refine nets at decoder side.')
     if n_refine_nets == -1:
-        net = TransformerAE(encoded_dim, Nc, Nt) # kbits=None = no quantization
+        # net = TransformerAE(encoded_dim, Nc, Nt) # kbits=None = no quantization
+        pass
     else:
         net = CsinetPlus(encoded_dim, Nc, Nt, n_refine_nets=n_refine_nets)
     net.to(device)
