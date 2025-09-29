@@ -368,6 +368,7 @@ os.makedirs(results_folder, exist_ok=True)
 #%% Plot results for publication
 
 # np.save(results_folder + '/pretraining_results.npy', results_matrix_db
+results_folder = './ch_compression_results/results4'
 results_matrix_db = np.load(results_folder + '/pretraining_results.npy')
 
 data_percents = [0.5, 1, 5, 10, 40, 90]  # Percentages of training data to use
@@ -375,45 +376,17 @@ data_percents = [0.5, 1, 5, 10, 40, 90]  # Percentages of training data to use
 # Calculate number of points for each percentage
 n_points = [int(round(n_samples * p / 100, -2)) for p in data_percents]
 
-# Plot performance comparison with percentages
-plot_pretraining_comparison(
-    x_values=data_percents,
-    results_matrix_db=results_matrix_db,
-    models=[base_model] + pretrained_models,
-    save_path=results_folder,
-    plot_type='performance',
-    x_label='Training Data (%)'
-)
-
+#%%
 # Plot performance comparison with datapoints
 plot_pretraining_comparison(
-    x_values=n_points,
+    x_values=n_points, # data_percents,
     results_matrix_db=results_matrix_db,
     models=[base_model] + pretrained_models,
     save_path=results_folder + '/with_datapoints',
     plot_type='performance',
-    x_label='Number of Training Samples'
+    x_label='Number of Training Samples',  # 'Training Data (%)'
+    x_logscale=True
 )
-
-# # Plot gain comparison with percentages
-# plot_pretraining_comparison(
-#     x_values=data_percents,
-#     results_matrix_db=-results_matrix_db,
-#     models=[base_model] + pretrained_models,
-#     save_path=results_folder,
-#     plot_type='gain',
-#     x_label='Training Data (%)'
-# )
-
-# # Plot gain comparison with datapoints
-# plot_pretraining_comparison(
-#     x_values=n_points,
-#     results_matrix_db=-results_matrix_db,
-#     models=[base_model] + pretrained_models,
-#     save_path=results_folder + '/with_datapoints',
-#     plot_type='gain',
-#     x_label='Number of Training Samples'
-# )
 
 
 # %%
