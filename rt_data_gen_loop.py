@@ -1,8 +1,6 @@
 
 
 #%% Imports
-import gc
-
 import numpy as np
 from tqdm import tqdm
 import deepmimo as dm
@@ -18,7 +16,7 @@ from thtt_ch_pred_utils import (
 NT = 2
 NR = 1
 
-N_SAMPLES = 400_000
+N_SAMPLES = 200_000
 L = 60  # 20 for input, 40 for output
 N_SUBCARRIERS = 1
 
@@ -30,6 +28,8 @@ INTERPOLATE = True
 GPU_IDX = 0
 SEED = 42
 
+RT_SCENARIO = 'city_0_newyork_3p5' # 'asu_campus_3p5_10cm'
+
 matrices = ['rx_pos', 'tx_pos', 'aoa_az', 'aod_az', 'aoa_el', 'aod_el', 
             'delay', 'power', 'phase', 'inter']
 
@@ -37,16 +37,14 @@ matrices = ['rx_pos', 'tx_pos', 'aoa_az', 'aod_az', 'aoa_el', 'aod_el',
 
 # DOPPLERS = [0, 10, 30, 100, 200]
 # INTERPOLATIONS = [5, 10, 30, 100]
-DOPPLERS = [10] # NEXT: 30
-INTERPOLATIONS = [100] # NEXT: 5
+DOPPLERS = [100] # NEXT: 30
+INTERPOLATIONS = [25] # NEXT: 5
 
 for doppler in DOPPLERS:
     for interp in INTERPOLATIONS:
         print(f"Doppler: {doppler}, Interp: {interp}")
 
-        dataset = dm.load('asu_campus_3p5_10cm', matrices=matrices)
-
-        gc.collect()
+        dataset = dm.load(RT_SCENARIO, matrices=matrices)[0]
 
         MAX_DOOPLER = doppler # [Hz]
         INTERP_FACTOR = interp
@@ -121,7 +119,7 @@ for doppler in DOPPLERS:
             H_complex=H_seq,
             time_axis=1,
             data_folder=f'all_ch_pred_RT_data/ch_pred_data_{N_SAMPLES//1000}k_{MAX_DOOPLER}hz_{L}steps',
-            model='asu_campus_3p5_10cm' + (f'_interp_{INTERP_FACTOR}' if INTERPOLATE else ''),
+            model=RT_SCENARIO + (f'_interp_{INTERP_FACTOR}' if INTERPOLATE else ''),
             snr_db=SNR
         )
 # %%
