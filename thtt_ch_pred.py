@@ -59,7 +59,7 @@ L = 60  # 20 for input, 40 for output
 N_SUBCARRIERS = 1
 
 SNR = 250 # [dB] NOTE: for RT, normalization must be consistent for w & w/o noise
-MAX_DOOPLER = 3 # [Hz]
+MAX_DOOPLER = 100 # [Hz]
 TIME_DELTA = 1e-3 # [s]
 
 INTERPOLATE = True
@@ -68,7 +68,7 @@ INTERP_FACTOR = 10  # final interpolated numbers of points
 # Note: if samples are 1m apart, and we want 10cm between points, 
 #       set INTERP_FACTOR = 102. 1 m / (102 - 2) = 10cm
 
-DATA_FOLDER = f'ch_pred_data_{N_SAMPLES//1000}k_{MAX_DOOPLER}hz_{L}steps'
+DATA_FOLDER = f'ch_pred_results/ch_pred_data_{N_SAMPLES//1000}k_{MAX_DOOPLER}hz_{L}steps'
 
 GPU_IDX = 0
 SEED = 42
@@ -338,7 +338,7 @@ from nr_channel_predictor_wrapper import (
 
 import pandas as pd
 
-models_folder = f'ch_pred_models_{MAX_DOOPLER}hz_{L}steps_INTERP_{INTERP_FACTOR}'
+models_folder = f'ch_pred_results/FINAL_ch_pred_models_{MAX_DOOPLER}hz_{L}steps_INTERP_{INTERP_FACTOR}'
 os.makedirs(models_folder, exist_ok=True)
 
 models = ['TDL-A', 'CDL-C', 'UMa', f'asu_campus_3p5_10cm_interp_{INTERP_FACTOR}']
@@ -420,7 +420,8 @@ print(f"Saved validation loss results to {models_folder}/validation_losses.csv")
 #%% Plot validation loss per horizon results
 
 # Load validation loss results from CSV
-df = pd.read_csv(f'{models_folder}/validation_losses.csv')
+# df = pd.read_csv(f'{models_folder}/validation_losses_final.csv')
+df = pd.read_csv(f'{models_folder}/validation_losses-final.csv')
 
 # Extract horizons and per-model losses from the DataFrame
 horizons = df['horizon'].tolist()
@@ -452,12 +453,13 @@ plt.ylabel('Validation Loss (NMSE in dB)')
 plt.legend(ncols=4, bbox_to_anchor=(0.46, 1.0), loc='lower center')
 plt.xlim(0, horizons[-1] + 0.5)
 plt.grid()
+plt.savefig(f'{models_folder}/validation_losses.png', bbox_inches='tight', dpi=200)
 plt.show()
 
 #%% Load models and test them on other datasets
 
 # Run cross-testing over all defined models
-results_matrix = compute_nmse_matrix(models, horizon=1, l_in=L_IN,
+results_matrix = compute_nmse_matrix(models, horizon=5, l_in=L_IN,
                                      models_folder=models_folder,
                                      data_folder=DATA_FOLDER,
                                      num_tx_antennas=NT)
@@ -503,6 +505,10 @@ def fine_tune_and_test(models_list: list[str], horizon: int, l_in: int,
         for j, tgt_model in enumerate(models_list):
             print(f"Fine-tuning {src_model} -> {tgt_model} (horizon={horizon})")
 
+            if src_model == tgt_model:
+                print(f"Skipping fine-tuning {src_model} -> {tgt_model} (horizon={horizon}) because it's the same model")
+                continue
+
             # Load target data and split
             H_norm_tgt = np.load(f'{DATA_FOLDER}/H_norm_{tgt_model}.npy')
             x_train, y_train, x_val, y_val = split_data(H_norm_tgt, train_ratio=train_ratio,
@@ -538,11 +544,11 @@ def fine_tune_and_test(models_list: list[str], horizon: int, l_in: int,
 
 
 # Run fine-tuning and plot results
-ft_matrix = fine_tune_and_test(models, horizon=1, l_in=L_IN,
-                               train_ratio=0.1,
-                               initial_lr=1e-4,
-                               batch_size=64,
-                               num_epochs=50,
-                               patience=30)
+ft_matrix = fine_tune_and_test(models, horizon=5, l_in=L_IN,
+                               train_ratio=0.01,
+                               initial_lr=4e-4,
+                               batch_size=128,
+                               num_epochs=30,
+                               patience=10)
 
 plot_test_matrix(ft_matrix, models)
