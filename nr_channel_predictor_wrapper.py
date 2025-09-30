@@ -45,7 +45,7 @@ def train(chan_predictor,
           x_val: np.ndarray, y_val: np.ndarray, 
           initial_learning_rate: float, batch_size: int, num_epochs: int, 
           verbose: bool=False, patience: int = 10, patience_factor: float = 1.0,
-          best_model_path: str | None = None, device_idx: str = 1):
+          best_model_path: str | None = None, device_idx: int = 0):
     """
     Trains a channel predictor PyTorch model using offline training.
 
