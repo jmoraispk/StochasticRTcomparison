@@ -4,6 +4,7 @@ from typing import Optional
 import os
 import matplotlib as mpl
 from matplotlib.colors import Normalize
+import pandas as pd
 
 def plot_training_results(all_res: list, models: list, title: Optional[str] = None,
                           save_path: Optional[str] = None) -> None:
@@ -233,4 +234,85 @@ def plot_pretraining_comparison(x_values: list,
     plt.savefig(f'{save_path}/{filename}.pdf', bbox_inches='tight', dpi=300)
     plt.savefig(f'{save_path}/{filename}.png', bbox_inches='tight', dpi=300)
 
+    return ax
+
+def plot_validation_losses_from_csv(csv_path, out_path: Optional[str] = None) -> Optional[plt.Axes]:
+    """Read a validation-loss CSV and plot losses with minimal external inputs.
+    
+    The CSV is expected to contain a horizon column (case-insensitive: "horizon" or "horizons")
+    and, for each base model name M, columns "M_gru_best" and "M_sh".
+    
+    Args:
+        csv_path: Path to the CSV file.
+        out_path: Optional output path for the PNG. If None, writes next to the CSV with same stem.
+    Returns:
+        Matplotlib Axes if successful, otherwise None.
+    """
+    if isinstance(csv_path, (str, os.PathLike)):
+        csv_path = os.fspath(csv_path)
+    if not os.path.exists(csv_path):
+        print(f"[SKIP] {csv_path} not found.")
+        return None
+
+    df = pd.read_csv(csv_path)
+
+    # Locate horizon column (case-insensitive)
+    horizon_col = next((c for c in df.columns if c.lower() in ("horizon", "horizons")), None)
+    if horizon_col is None:
+        print(f"[SKIP] No horizon column in {csv_path}")
+        return None
+    horizons = df[horizon_col].tolist()
+
+    # Detect base model names that have both *_gru_best and *_sh
+    suffix_best = "_gru"
+    suffix_sh   = "_sh"
+    cols = set(df.columns)
+    models = [
+        c[:-len(suffix_best)]
+        for c in df.columns if c.endswith(suffix_best)
+        if f"{c[:-len(suffix_best)]}{suffix_sh}" in cols
+    ]
+    if not models:
+        print(f"[SKIP] No model columns in {csv_path}")
+        return None
+
+    colors  = ['#E41A1C', '#377EB8', '#4DAF4A', '#984EA3', '#FF7F00', '#A65628']
+    markers = ['o', 's', 'D', 'P', '^', 'v']
+
+    plt.figure(dpi=300)
+    ax = plt.gca()
+    for i, m in enumerate(models):
+        color  = colors[i % len(colors)]
+        marker = markers[i % len(markers)]
+        ax.plot(horizons, df[f"{m}{suffix_best}"], label=f"{m}_best",
+                color=color, marker=marker, markersize=5)
+        ax.plot(horizons, df[f"{m}{suffix_sh}"], label=f"{m}_SH",
+                color=color, linestyle="--", marker=marker, markersize=5)
+
+    ax.set_xlabel("Horizon (ms)")
+    ax.set_ylabel("NMSE (dB)")
+    ax.legend(
+        ncols=min(2, len(models)),
+        title="Model",
+        loc="lower right",
+        framealpha=1.0,
+        borderpad=0.6,
+        columnspacing=0.6,
+        handlelength=1.5,
+        handletextpad=0.4,
+    )
+    ax.set_xlim(0, max(horizons) + 0.5)
+    ax.grid(True)
+    plt.tight_layout()
+
+    # Save figure
+    if out_path is None:
+        folder = os.path.dirname(csv_path)
+        stem = os.path.splitext(os.path.basename(csv_path))[0]
+        out_path = os.path.join(folder, f"{stem}.png")
+
+    plt.show()
+    plt.savefig(out_path, bbox_inches="tight")
+    plt.close()
+    print(f"[OK] Saved {out_path}")
     return ax
