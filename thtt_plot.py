@@ -322,29 +322,44 @@ def plot_validation_losses_from_csv(csv_path, out_path: Optional[str] = None, sp
     ax.set_ylabel("NMSE (dB)")
     if split_legend:
         from matplotlib.lines import Line2D
-        # Legend A: models by color
-        model_handles = [Line2D([0], [0], color=colors[i % len(colors)], lw=3)
-                         for i in range(len(models))]
+        # Legend A: models by color and marker (line + scatter)
+        model_handles = [
+            Line2D(
+                [0], [0],
+                color=colors[i % len(colors)],
+                marker=markers[i % len(markers)],
+                linestyle='-',
+                markerfacecolor='white',
+                markeredgewidth=1.5,
+                markersize=8,
+                linewidth=2,
+            )
+            for i in range(len(models))
+        ]
         leg_models = ax.legend(
             model_handles,
             models,
-            title='Model (color)',
-            loc='upper left',
+            title='Channel Model',
+            loc='lower right', bbox_to_anchor=(1.0, 0.15),
             frameon=True,
-            handlelength=3.5,
+            handlelength=2.5,
+            borderpad=0.6,
+            ncol=2,
         )
-        # Legend B: predictors by linestyle
+        # Legend B: predictors by linestyle (two columns)
         method_handles = [
-            Line2D([0], [0], color='k', lw=2, linestyle='-'),
             Line2D([0], [0], color='k', lw=2, linestyle='--'),
+            Line2D([0], [0], color='k', lw=2, linestyle='-'),
         ]
-        leg_methods = ax.legend(
+        ax.legend(
             method_handles,
-            ['GRU', 'S&H'],
-            title='Predictor (linestyle)',
-            loc='upper left', bbox_to_anchor=(0, 0.72),
+            ['S&H', 'GRU'],
+            title='Channel Predictor',
+            loc='lower right', bbox_to_anchor=(1.0, 0.0),
             frameon=True,
-            handlelength=3.5,
+            handlelength=2.95,
+            borderpad=0.6,
+            ncol=2,
         )
         ax.add_artist(leg_models)
     else:
