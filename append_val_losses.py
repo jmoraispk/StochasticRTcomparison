@@ -519,10 +519,10 @@ plot_confusion_grid_from_cache(annotate=True, vmin_db=-30, vmax_db=0)
 from thtt_plot import plot_validation_losses_from_csv
 
 folder = base_dir / "FINAL_ch_pred_models_100hz_60steps_INTERP_10"
-csv_path = folder / "validation_losses-final2.csv"
+csv_path = folder / "validation_losses-final.csv"
 
 out_path = folder / "validation_losses.png"
-plot_validation_losses_from_csv(csv_path, out_path)
+plot_validation_losses_from_csv(csv_path, out_path, split_legend=True)
 
 #%%
 

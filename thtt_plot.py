@@ -5,6 +5,7 @@ import os
 import matplotlib as mpl
 from matplotlib.colors import Normalize
 import pandas as pd
+from matplotlib.lines import Line2D
 
 def plot_training_results(all_res: list, models: list, title: Optional[str] = None,
                           save_path: Optional[str] = None) -> None:
@@ -236,7 +237,7 @@ def plot_pretraining_comparison(x_values: list,
 
     return ax
 
-def plot_validation_losses_from_csv(csv_path, out_path: Optional[str] = None) -> Optional[plt.Axes]:
+def plot_validation_losses_from_csv(csv_path, out_path: Optional[str] = None, split_legend: bool = False) -> Optional[plt.Axes]:
     """Read a validation-loss CSV and plot losses with minimal external inputs.
     
     The CSV is expected to contain a horizon column (case-insensitive: "horizon" or "horizons")
@@ -245,6 +246,7 @@ def plot_validation_losses_from_csv(csv_path, out_path: Optional[str] = None) ->
     Args:
         csv_path: Path to the CSV file.
         out_path: Optional output path for the PNG. If None, writes next to the CSV with same stem.
+        split_legend: If True, create two legends: (A) models by color, (B) predictors by linestyle.
     Returns:
         Matplotlib Axes if successful, otherwise None.
     """
@@ -290,8 +292,8 @@ def plot_validation_losses_from_csv(csv_path, out_path: Optional[str] = None) ->
     horizons = df[horizon_col].tolist()
 
     # Detect base model names that have both *_gru_best and *_sh
-    suffix_best = "_gru"
-    suffix_sh   = "_sh"
+    suffix_best = " GRU"
+    suffix_sh   = " S&H"
     cols = set(df.columns)
     models = [
         c[:-len(suffix_best)]
@@ -310,22 +312,50 @@ def plot_validation_losses_from_csv(csv_path, out_path: Optional[str] = None) ->
     for i, m in enumerate(models):
         color  = colors[i % len(colors)]
         marker = markers[i % len(markers)]
-        ax.plot(horizons, df[f"{m}{suffix_best}"], label=f"{m}_best",
+        ax.plot(horizons, df[f"{m}{suffix_best}"], label=f"{m} GRU",
                 color=color, marker=marker)
-        ax.plot(horizons, df[f"{m}{suffix_sh}"], label=f"{m}_SH",
+        ax.plot(horizons, df[f"{m}{suffix_sh}"], label=f"{m} S&H",
                 color=color, linestyle="--", marker=marker, 
                 markerfacecolor='white', markeredgewidth=1.3)
 
     ax.set_xlabel("Horizon (ms)")
     ax.set_ylabel("NMSE (dB)")
-    ax.legend(
-        ncols=min(2, len(models)),
-        title="Model",
-        loc="lower right",
-        framealpha=1.0,
-        borderpad=0.6,
-        columnspacing=0.6,
-    )
+    if split_legend:
+        from matplotlib.lines import Line2D
+        # Legend A: models by color
+        model_handles = [Line2D([0], [0], color=colors[i % len(colors)], lw=3)
+                         for i in range(len(models))]
+        leg_models = ax.legend(
+            model_handles,
+            models,
+            title='Model (color)',
+            loc='upper left',
+            frameon=True,
+            handlelength=3.5,
+        )
+        # Legend B: predictors by linestyle
+        method_handles = [
+            Line2D([0], [0], color='k', lw=2, linestyle='-'),
+            Line2D([0], [0], color='k', lw=2, linestyle='--'),
+        ]
+        leg_methods = ax.legend(
+            method_handles,
+            ['GRU', 'S&H'],
+            title='Predictor (linestyle)',
+            loc='upper left', bbox_to_anchor=(0, 0.72),
+            frameon=True,
+            handlelength=3.5,
+        )
+        ax.add_artist(leg_models)
+    else:
+        ax.legend(
+            ncols=min(2, len(models)),
+            title="Model",
+            loc="lower right",
+            framealpha=1.0,
+            borderpad=0.6,
+            columnspacing=0.6,
+        )
     ax.set_xlim(0, max(horizons) + 0.5)
     ax.grid(True)
     plt.tight_layout()
