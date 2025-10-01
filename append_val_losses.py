@@ -146,7 +146,7 @@ def plot_validation_losses(folder: Path, csv_name: str = "validation_losses-fina
 dopplers = [10, 100, 400]
 interps  = [2, 10, 100]
 steps    = 60
-base_dir = Path(".").resolve()
+base_dir = Path(".").resolve() / "ch_pred_results"
 
 for d in dopplers:
     for k in interps:
@@ -160,7 +160,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # ---------- config ----------
-base_dir = Path(".").resolve()
+base_dir = Path(".").resolve() / "ch_pred_results"
 steps    = 60
 dopplers = [10, 100, 400]          # left -> right
 interps  = [100, 10, 2]            # top -> bottom (descending as requested)
@@ -513,3 +513,17 @@ def plot_confusion_grid_from_cache(
     print(f"[OK] Saved {grid_png}")
 
 plot_confusion_grid_from_cache(annotate=True, vmin_db=-30, vmax_db=0)
+
+#%% Final plots
+
+from thtt_plot import plot_validation_losses_from_csv
+
+folder = base_dir / "FINAL_ch_pred_models_100hz_60steps_INTERP_10"
+csv_path = folder / "validation_losses-final2.csv"
+
+out_path = folder / "validation_losses.png"
+plot_validation_losses_from_csv(csv_path, out_path)
+
+#%%
+
+# plot_test_matrix()

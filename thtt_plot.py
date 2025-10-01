@@ -256,6 +256,32 @@ def plot_validation_losses_from_csv(csv_path, out_path: Optional[str] = None) ->
 
     df = pd.read_csv(csv_path)
 
+    # Set up publication-quality plot settings
+    plt.style.use('default')
+
+    # 2) Reset all rcParams to Matplotlib’s built-in defaults
+    plt.rcdefaults()
+    mpl.rcParams['lines.linewidth'] = 1.5
+    mpl.rcParams['lines.markersize'] = 6
+    mpl.rcParams['legend.handlelength'] = 2.5
+    mpl.rcParams['legend.handletextpad'] = 0.8
+
+    # plt.style.use('seaborn-v0_8-paper')
+    # mpl.rcParams['figure.figsize'] = (10, 6)
+    # mpl.rcParams['figure.dpi'] = 300
+    # mpl.rcParams['font.size'] = 12
+    # mpl.rcParams['axes.labelsize'] = 18
+    # mpl.rcParams['axes.titlesize'] = 16
+    # mpl.rcParams['xtick.labelsize'] = 14       # x-tick label font size
+    # mpl.rcParams['ytick.labelsize'] = 14       # y-tick label font size
+    # mpl.rcParams['legend.fontsize'] = 14
+    # mpl.rcParams['legend.frameon'] = True
+    # mpl.rcParams['legend.framealpha'] = 1
+    # mpl.rcParams['legend.edgecolor'] = 'grey'
+    # mpl.rcParams['legend.title_fontsize'] = 15
+    # mpl.rcParams['axes.labelpad'] = 10
+
+
     # Locate horizon column (case-insensitive)
     horizon_col = next((c for c in df.columns if c.lower() in ("horizon", "horizons")), None)
     if horizon_col is None:
@@ -285,9 +311,10 @@ def plot_validation_losses_from_csv(csv_path, out_path: Optional[str] = None) ->
         color  = colors[i % len(colors)]
         marker = markers[i % len(markers)]
         ax.plot(horizons, df[f"{m}{suffix_best}"], label=f"{m}_best",
-                color=color, marker=marker, markersize=5)
+                color=color, marker=marker)
         ax.plot(horizons, df[f"{m}{suffix_sh}"], label=f"{m}_SH",
-                color=color, linestyle="--", marker=marker, markersize=5)
+                color=color, linestyle="--", marker=marker, 
+                markerfacecolor='white', markeredgewidth=1.3)
 
     ax.set_xlabel("Horizon (ms)")
     ax.set_ylabel("NMSE (dB)")
@@ -298,8 +325,6 @@ def plot_validation_losses_from_csv(csv_path, out_path: Optional[str] = None) ->
         framealpha=1.0,
         borderpad=0.6,
         columnspacing=0.6,
-        handlelength=1.5,
-        handletextpad=0.4,
     )
     ax.set_xlim(0, max(horizons) + 0.5)
     ax.grid(True)
@@ -311,8 +336,8 @@ def plot_validation_losses_from_csv(csv_path, out_path: Optional[str] = None) ->
         stem = os.path.splitext(os.path.basename(csv_path))[0]
         out_path = os.path.join(folder, f"{stem}.png")
 
-    plt.show()
     plt.savefig(out_path, bbox_inches="tight")
+    plt.show()
     plt.close()
     print(f"[OK] Saved {out_path}")
     return ax
