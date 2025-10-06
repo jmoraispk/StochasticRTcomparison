@@ -48,7 +48,7 @@ from thtt_ch_pred_utils import (
 from thtt_plot import plot_test_matrix
 
 # To plot H for specific antennas (uses only matplotlib)
-from thtt_ch_pred_plot import plot_iq_from_H
+from thtt_ch_pred_plot import plot_iq_from_H, plot_validation_losses_from_csv
 from thtt_ch_pred_utils import compute_nmse_matrix
 
 NT = 2
@@ -552,3 +552,14 @@ ft_matrix = fine_tune_and_test(models, horizon=5, l_in=L_IN,
                                patience=10)
 
 plot_test_matrix(ft_matrix, models)
+
+#%%
+
+from pathlib import Path
+
+base_dir = Path(".").resolve() / "ch_pred_results"
+folder = base_dir / "FINAL_ch_pred_models_100hz_60steps_INTERP_10"
+csv_path = folder / "validation_losses-final.csv"
+
+out_path = folder / "validation_losses.png"
+plot_validation_losses_from_csv(csv_path, out_path, split_legend=True)
