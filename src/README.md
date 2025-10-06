@@ -4,14 +4,20 @@ This project compares stochastic channel models with ray tracing models using UM
 
 ## Install Dependencies
 
+First, install an environment manager.
+We suggest environment management with conda/mamba, via installation of miniforge. 
+
+Second, in each environment, we suggest installing uv.
+
+Then, setup two environments using the instructions below:
 ```
-### ENV1: sionna environment (for data generation and topology under TensorFlow/Sionna)
+### ENV1: sionna environment used for data generation and topology plots with cuML
 mamba create -n env1_sionna python=3.11
 mamba activate env1_sionna
-pip install -r env1_sionna_requirements.txt
+uv pip install -r env1_sionna.txt
 
 # Install cuML necessary for FAST UMAP transforms (check docs.rapids.ai/install)
-pip install --extra-index-url=https://pypi.nvidia.com "cuml-cu12==25.4.*"
+uv pip install --extra-index-url=https://pypi.nvidia.com "cuml-cu12==25.4.*"
 
 ### ENV2: pytorch environment (for training models and experiments)
 mamba create -n env2_pytorch python=3.11
@@ -20,15 +26,24 @@ mamba activate env2_pytorch
 # Install PyTorch to run the models (check pytorch.org/get-started/locally)
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 
-uv pip install -r env2_pytorch env2_pytorch_requirements.txt
-uv pip install -e .   ( in deepmimo env)
-uv pip install jupyter ipykernel
-
-############# Install DeepMIMO command (in both env requirements)
-# pip install deepmimo==4.0.0a3
-
-# TIP: install uv (with `pip install uv`) and use `uv pip` instead of `pip` for speed
+uv pip install -r env2_pytorch env2_pytorch.txt
 ```
+
+## Usage
+
+1. Configure data generation parameters in `data_gen.py` (`DataConfig`)
+2. Generate/load data using `load_data_matrices()`
+3. Visualize data topology using `topology/topology.py`:
+   - Compute UMAP embeddings
+   - Visualize with/without outliers
+   - Perform partial UMAP fitting
+4. Train and test compression models via `thtt.py`:
+   - Data prep through `thtt_utils.py`
+   - Train `CsinetPlus` or `TransformerAE`
+   - Cross-test across datasets
+5. Run temporal prediction via `thtt_ch_pred.py`:
+   - Build sequences with `thtt_ch_pred_utils.py`
+   - Train GRU predictor (`nr_channel_predictor.py`) or experiment with `transformerPred.py`
 
 ## Project Structure
 
@@ -106,12 +121,12 @@ uv pip install jupyter ipykernel
 ## Data Flow
 
 ```
-data_gen.py ──────┐
-                  ├─> topology.py (UMAP visualization)
-                  │      └─> topology_utils.py (plotting)
-                  │
-                  └─> thtt.py (Training and testing)
-                         └─> thtt_utils.py (data preparation)
+data_gen.py
+   ├──> topology.py (UMAP visualization)
+   │       └──> topology_utils.py (plotting)
+   │
+   └──> thtt.py (training and testing)
+           └──> thtt_utils.py (data preparation)
 ```
 
 ## Key Modules and How They Interact
@@ -176,23 +191,6 @@ data_gen.py ──────┐
 - data_gen.py → sionna_ch_gen.py → DeepMIMO/Sionna backends
 - thtt_ch_pred.py → nr_channel_predictor_wrapper.py → nr_channel_predictor.py → thtt_ch_pred_utils.py
 - topology/topology.py → topology/topology_utils.py
-
-
-## Usage
-
-1. Configure data generation parameters in `data_gen.py` (`DataConfig`)
-2. Generate/load data using `load_data_matrices()`
-3. Visualize data topology using `topology/topology.py`:
-   - Compute UMAP embeddings
-   - Visualize with/without outliers
-   - Perform partial UMAP fitting
-4. Train and test compression models via `thtt.py`:
-   - Data prep through `thtt_utils.py`
-   - Train `CsinetPlus` or `TransformerAE`
-   - Cross-test across datasets
-5. Run temporal prediction via `thtt_ch_pred.py`:
-   - Build sequences with `thtt_ch_pred_utils.py`
-   - Train GRU predictor (`nr_channel_predictor.py`) or experiment with `transformerPred.py`
 
 ## Dependencies
 
