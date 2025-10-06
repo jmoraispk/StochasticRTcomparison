@@ -9,7 +9,10 @@ We suggest environment management with conda/mamba, via installation of miniforg
 
 Second, in each environment, we suggest installing uv.
 
-Then, setup two environments using the instructions below:
+Third, there will be two environments. One is used for data generation (the one with Tensorflow/Sionna), the 
+other for training models (the one with PyTorch). The reason for this is incompatibilities between TF and PyTorch.
+
+To setup the two environments using the instructions below:
 ```
 ### ENV1: sionna environment used for data generation and topology plots with cuML
 mamba create -n env1_sionna python=3.11
@@ -31,22 +34,30 @@ uv pip install -r env2_pytorch env2_pytorch.txt
 
 ## Usage
 
+Recommended execution: Install jupyter extension in VSCode/Cursor and execute one cell (marked by `#%%`) at a time. 
+
+**Important:** For data generation, activate the ENV1 (w/ Sionna). For training, activate ENV2 (w/ PyTorch).
+
+### Channel Compression & Topology
 1. Configure data generation parameters in `data_gen.py` (`DataConfig`)
 2. Generate/load data using `load_data_matrices()`
-3. Visualize data topology using `topology/topology.py`:
-   - Compute UMAP embeddings
-   - Visualize with/without outliers
-   - Perform partial UMAP fitting
-4. Train and test compression models via `thtt.py`:
-   - Data prep through `thtt_utils.py`
-   - Train `CsinetPlus` or `TransformerAE`
-   - Cross-test across datasets
-5. Run temporal prediction via `thtt_ch_pred.py`:
-   - Build sequences with `thtt_ch_pred_utils.py`
-   - Train GRU predictor (`nr_channel_predictor.py`) or experiment with `transformerPred.py`
+3. (optional) Visualize data topology using `topology/topology.py`
+4. Train and test compression models via `thtt.py`
+
+### Channel Prediction
+1. Run data generation `thtt_ch_pred_data_gen.py`
+2. Run temporal prediction via `thtt_ch_pred.py`
+
+
+### Extra Models
+We also include 2 transformer models, one for each task:
+-  `TransformerAE` for compression
+-  `transformerPred` for prediction
+
+These models offer state-of-the-art performance. For the paper we opted for simpler models that are more established in the community mainly because they are faster to train, sometimes by a factor of 10.
 
 ## Project Structure
-
+Inside ./src/
 ```
 ├── data_gen.py                 # Core data generation and preparation
 │   ├── DataConfig              # Configuration class for data generation
