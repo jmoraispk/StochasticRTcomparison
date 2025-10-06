@@ -4,4 +4,4 @@ scikit-learn
 einops
 pandas
 matplotlib
-deepmimo>4.0.0a3
+deepmimo==4.0.0b11
