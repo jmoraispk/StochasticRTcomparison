@@ -27,7 +27,6 @@ Post-processing (common for ray tracing & stochastic):
 #%% Imports
 
 import numpy as np
-import os
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import deepmimo as dm
@@ -35,21 +34,14 @@ import deepmimo as dm
 # To create sequences and videos
 from thtt_ch_pred_utils import (
     get_all_sequences,
-    make_sequence_video,
-    db,
-    nmse,
+    make_sequence_video,  # noqa: F401
     process_and_save_channel,
-    split_data,
     expand_to_uniform_sequences,
     interpolate_dataset_from_seqs
 )
 
-# To plot test matrix
-from thtt_plot import plot_test_matrix
-
 # To plot H for specific antennas (uses only matplotlib)
-from thtt_ch_pred_plot import plot_iq_from_H, plot_validation_losses_from_csv
-from thtt_ch_pred_utils import compute_nmse_matrix
+from thtt_ch_pred_plot import plot_iq_from_H
 
 NT = 2
 NR = 1

@@ -3,6 +3,7 @@ astunparse==1.6.3
 blessed==1.20.0
 cachetools==5.5.0
 cycler==0.12.1
+deepmimo=4.0.0b11
 drjit==0.4.6
 flatbuffers==24.12.23
 fonttools==4.55.3

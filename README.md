@@ -13,16 +13,18 @@ Third, there will be two environments. One is used for data generation (the one 
 other for training models (the one with PyTorch). The reason for this is incompatibilities between TF and PyTorch.
 
 To setup the two environments using the instructions below:
-```
-### ENV1: sionna environment used for data generation and topology plots with cuML
-mamba create -n env1_sionna python=3.11
+
+**ENV1**: sionna environment used for data generation and topology plots with cuML
+```mamba create -n env1_sionna python=3.11
 mamba activate env1_sionna
 uv pip install -r env1_sionna.txt
 
 # Install cuML necessary for FAST UMAP transforms (check docs.rapids.ai/install)
 uv pip install --extra-index-url=https://pypi.nvidia.com "cuml-cu12==25.4.*"
+```
 
-### ENV2: pytorch environment (for training models and experiments)
+**ENV2**: pytorch environment (for training models and experiments)
+```
 mamba create -n env2_pytorch python=3.11
 mamba activate env2_pytorch
 

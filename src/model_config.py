@@ -7,7 +7,6 @@ training settings, and data paths in a centralized way.
 from dataclasses import dataclass, asdict
 from typing import Optional
 import os
-import copy
 
 @dataclass
 class ModelConfig:
