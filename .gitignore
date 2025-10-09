@@ -1,7 +1,7 @@
 slides/*
 .ruff.toml
-__pycache__/*
-deepmimo_scenarios/*
+**/__pycache__/*
+**/deepmimo_scenarios/*
 deepmimo_scenarios_downloaded/*
 .ipynb_checkpoints/*
 data/*
