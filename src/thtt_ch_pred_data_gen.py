@@ -60,7 +60,7 @@ INTERP_FACTOR = 10  # final interpolated numbers of points
 # Note: if samples are 1m apart, and we want 10cm between points, 
 #       set INTERP_FACTOR = 102. 1 m / (102 - 2) = 10cm
 
-DATA_FOLDER = f'ch_pred_results/ch_pred_data_{N_SAMPLES//1000}k_{MAX_DOOPLER}hz_{L}steps'
+DATA_FOLDER = f'../data/new_ch_pred/ch_pred_data_{N_SAMPLES//1000}k_{MAX_DOOPLER}hz_{L}steps'
 
 GPU_IDX = 0
 SEED = 42
@@ -71,7 +71,6 @@ matrices = ['rx_pos', 'tx_pos', 'aoa_az', 'aod_az', 'aoa_el', 'aod_el',
             'delay', 'power', 'phase', 'inter']
 
 dataset = dm.load('asu_campus_3p5_10cm', matrices=matrices)
-dataset = dm.load('asu_campus_3p5_10cm')
 # dataset = dm.load('asu_campus_3p5', matrices=matrices)
 
 #%% [ANY ENV] (optional) Ray tracing data: Make video of all sequences
@@ -119,7 +118,7 @@ print(f"all_seqs_mat_t.shape: {all_seqs_mat_t.shape}")
 final_samples = min(N_SAMPLES, len(all_seqs_mat_t))
 np.random.seed(SEED)
 idxs = np.random.choice(len(all_seqs_mat_t), final_samples, replace=False)
-all_seqs_mat_t2 = all_seqs_mat_t[idxs][:100] # generate less sequences for testing
+all_seqs_mat_t2 = all_seqs_mat_t[idxs] # [:100] generate less sequences for testing
 print(f"all_seqs_mat_t2.shape: {all_seqs_mat_t2.shape}")
 
 #%% [ANY ENV] 4. Ray tracing data generation: Interpolate sequences
@@ -225,7 +224,7 @@ H_norm, H_noisy_norm, h_max = process_and_save_channel(
     snr_db=SNR
 )
 
-# # Plot normalized version
+# Plot normalized version
 plot_iq_from_H(H_3_plot / h_max, plot_sample_idx, plot_rx_idx)
 
 #%% [SIONNA ENV] Stochastic data generation: Import and Create Data Generator
@@ -242,11 +241,11 @@ data_cfg = DataConfig(
     n_tx = NT, 
     n_time_steps = L,
     samp_freq = 1e3,
-    batch_size = 10_000,
+    batch_size = 1_000,
     seed = SEED
 )
 
-model = 'UMa'
+model = 'CDL-C'
 config = data_cfg
 
 fc = 3.5e9 # [Hz]
