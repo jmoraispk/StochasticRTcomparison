@@ -70,8 +70,8 @@ SEED = 42
 matrices = ['rx_pos', 'tx_pos', 'aoa_az', 'aod_az', 'aoa_el', 'aod_el', 
             'delay', 'power', 'phase', 'inter']
 
-# dataset = dm.load('asu_campus_3p5_10cm', matrices=matrices)
-dataset = dm.load('asu_campus_3p5', matrices=matrices)
+dataset = dm.load('asu_campus_3p5_10cm', matrices=matrices)
+# dataset = dm.load('asu_campus_3p5', matrices=matrices)
 
 #%% [ANY ENV] (optional) Ray tracing data: Make video of all sequences
 
