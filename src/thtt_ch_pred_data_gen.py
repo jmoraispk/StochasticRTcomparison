@@ -60,7 +60,7 @@ INTERP_FACTOR = 10  # final interpolated numbers of points
 # Note: if samples are 1m apart, and we want 10cm between points, 
 #       set INTERP_FACTOR = 102. 1 m / (102 - 2) = 10cm
 
-DATA_FOLDER = f'../data/new_ch_pred/ch_pred_data_{N_SAMPLES//1000}k_{MAX_DOOPLER}hz_{L}steps'
+DATA_FOLDER = f'../data/ch_pred_data_{N_SAMPLES//1000}k_{MAX_DOOPLER}hz_{L}steps'
 
 GPU_IDX = 0
 SEED = 42
@@ -70,8 +70,8 @@ SEED = 42
 matrices = ['rx_pos', 'tx_pos', 'aoa_az', 'aod_az', 'aoa_el', 'aod_el', 
             'delay', 'power', 'phase', 'inter']
 
-dataset = dm.load('asu_campus_3p5_10cm', matrices=matrices)
-# dataset = dm.load('asu_campus_3p5', matrices=matrices)
+# dataset = dm.load('asu_campus_3p5_10cm', matrices=matrices)
+dataset = dm.load('asu_campus_3p5', matrices=matrices)
 
 #%% [ANY ENV] (optional) Ray tracing data: Make video of all sequences
 

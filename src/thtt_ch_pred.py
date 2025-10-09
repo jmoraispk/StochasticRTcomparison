@@ -37,7 +37,6 @@ from thtt_ch_pred_utils import db, nmse, split_data
 from thtt_plot import plot_test_matrix
 
 # To plot H for specific antennas (uses only matplotlib)
-from thtt_ch_pred_plot import plot_validation_losses_from_csv
 from thtt_ch_pred_utils import compute_nmse_matrix
 
 from nr_channel_predictor_wrapper import (
@@ -64,16 +63,13 @@ INTERP_FACTOR = 10  # final interpolated numbers of points
 # Note: if samples are 1m apart, and we want 10cm between points, 
 #       set INTERP_FACTOR = 102. 1 m / (102 - 2) = 10cm
 
-DATA_FOLDER = f'ch_pred_results/ch_pred_data_{N_SAMPLES//1000}k_{MAX_DOOPLER}hz_{L}steps'
+DATA_FOLDER = f'../data/ch_pred_data_{N_SAMPLES//1000}k_{MAX_DOOPLER}hz_{L}steps'
 
 GPU_IDX = 0
 SEED = 42
 
-#%% [PYTORCH ENVIRONMENT] Split data
-
-
-models_folder = f'ch_pred_results/FINAL_ch_pred_models_{MAX_DOOPLER}hz_{L}steps_INTERP_{INTERP_FACTOR}'
-os.makedirs(models_folder, exist_ok=True)
+MODELS_FOLDER = f'../saved_models/ch_pred_models_{MAX_DOOPLER}hz_{L}steps_INTERP_{INTERP_FACTOR}'
+os.makedirs(MODELS_FOLDER, exist_ok=True)
 
 models = ['TDL-A', 'CDL-C', 'UMa', f'asu_campus_3p5_10cm_interp_{INTERP_FACTOR}']
 
@@ -93,7 +89,7 @@ for model in models:
     for horizon in horizons:
         print(f"========== Horizon: {horizon} ==========")
 
-        model_weights_file = f'{models_folder}/{model}_{horizon}.pth'
+        model_weights_file = f'{MODELS_FOLDER}/{model}_{horizon}.pth'
         if os.path.exists(model_weights_file):
             print(f"Model weights file {model_weights_file} already exists. Skipping training.")
             continue
@@ -106,7 +102,7 @@ for model in models:
 
         trained_model, tr_loss, val_loss, elapsed_time = \
             train(ch_pred_model, x_train, y_train, x_val, y_val, 
-                initial_learning_rate=4e-4, batch_size=256, num_epochs=300, 
+                initial_learning_rate=1e-4, batch_size=64, num_epochs=300, 
                 verbose=True, patience=60, patience_factor=1,
                 best_model_path=model_weights_file.replace('.pth', '_best.pth'),
                 device_idx=GPU_IDX)
@@ -121,7 +117,7 @@ for model in models:
         plt.title(f'Training and validation loss for {model} horizon {horizon} ms')
         plt.legend()
         plt.grid()
-        plt.savefig(f'{models_folder}/{model}_{horizon}_loss.png', bbox_inches='tight', dpi=200)
+        plt.savefig(f'{MODELS_FOLDER}/{model}_{horizon}_loss.png', bbox_inches='tight', dpi=200)
         plt.close()
         
         # sample & hold baseline (i.e. no prediction)
@@ -147,15 +143,14 @@ for model in models:
 
 # Convert to DataFrame and save
 df = pd.DataFrame(results)
-df.to_csv(f'{models_folder}/validation_losses.csv', index=False)
-print(f"Saved validation loss results to {models_folder}/validation_losses.csv")
+df.to_csv(f'{MODELS_FOLDER}/validation_losses.csv', index=False)
+print(f"Saved validation loss results to {MODELS_FOLDER}/validation_losses.csv")
 
 
 #%% Plot validation loss per horizon results
 
 # Load validation loss results from CSV
-# df = pd.read_csv(f'{models_folder}/validation_losses_final.csv')
-df = pd.read_csv(f'{models_folder}/validation_losses-final.csv')
+df = pd.read_csv(f'{MODELS_FOLDER}/validation_losses.csv')
 
 # Extract horizons and per-model losses from the DataFrame
 horizons = df['horizon'].tolist()
@@ -169,7 +164,6 @@ for model in models:
     val_loss_per_horizon_gru[model] = df[f'{model}_gru'].tolist()
     val_loss_per_horizon_gru_best[model] = df[f'{model}_gru_best'].tolist()
     val_loss_per_horizon_sh[model] = df[f'{model}_sh'].tolist()
-
 
 o = 0 # index of first horizon to plot (in case we want to start from non-zero)
 plt.figure(dpi=200)
@@ -187,26 +181,25 @@ plt.ylabel('Validation Loss (NMSE in dB)')
 plt.legend(ncols=4, bbox_to_anchor=(0.46, 1.0), loc='lower center')
 plt.xlim(0, horizons[-1] + 0.5)
 plt.grid()
-plt.savefig(f'{models_folder}/validation_losses.png', bbox_inches='tight', dpi=200)
+plt.savefig(f'{MODELS_FOLDER}/validation_losses.png', bbox_inches='tight', dpi=200)
 plt.show()
 
 #%% Load models and test them on other datasets
 
 # Run cross-testing over all defined models
 results_matrix = compute_nmse_matrix(models, horizon=5, l_in=L_IN,
-                                     models_folder=models_folder,
+                                     models_folder=MODELS_FOLDER,
                                      data_folder=DATA_FOLDER,
                                      num_tx_antennas=NT)
 
 # Plot confusion matrix (NMSE in dB inside the function)
 # plot_test_matrix(results_matrix, models)
-asu_name = f'ASU-{100 // INTERP_FACTOR}mm' if INTERP_FACTOR != 2 else 'ASU-40mm'
-plot_test_matrix(results_matrix, ['TDL-A', 'CDL-C', 'UMa', asu_name])
+plot_test_matrix(results_matrix, ['TDL-A', 'CDL-C', 'UMa', 'ASU-1cm'])
 
 #%% Fine tuning models & evaluating performance on target datasets
 
 # Fine-tuning configuration and utilities
-finetuned_models_folder = models_folder + '_finetuned'
+finetuned_models_folder = MODELS_FOLDER + '_finetuned'
 os.makedirs(finetuned_models_folder, exist_ok=True)
 
 def predict_batched(model, x: np.ndarray, batch_size: int = 128) -> np.ndarray:
@@ -226,15 +219,15 @@ def fine_tune_and_test(models_list: list[str], horizon: int, l_in: int,
                        patience_factor: float = 1.0) -> np.ndarray:
     """Fine-tune each source model on every target dataset and evaluate on target.
 
-    Saves weights to finetuned_models_folder as '{src}_to_{tgt}_{horizon}.pth'.
+    Saves weights to finetuned_MODELS_FOLDER as '{src}_to_{tgt}_{horizon}.pth'.
     Returns an NMSE matrix where [i, j] is the performance of src=i fine-tuned on tgt=j,
     evaluated on the tgt validation split.
     """
     ft_results = np.zeros((len(models_list), len(models_list)), dtype=float)
 
     for i, src_model in enumerate(models_list):
-        base_weights = f"{models_folder}/{src_model}_{horizon}_best.pth"
-        print(f"\n[Fine-tune] Using base weights: {base_weights}")
+        base_model_path = f"{MODELS_FOLDER}/{src_model}_{horizon}_best.pth"
+        print(f"\n[Fine-tune] Using base weights: {base_model_path}")
 
         for j, tgt_model in enumerate(models_list):
             print(f"Fine-tuning {src_model} -> {tgt_model} (horizon={horizon})")
@@ -250,7 +243,9 @@ def fine_tune_and_test(models_list: list[str], horizon: int, l_in: int,
 
             # Load model from base weights
             model = construct_model(NT, hidden_size=128, num_layers=3)
-            model = load_model_weights(model, base_weights)
+            model = load_model_weights(model, base_model_path)
+            ft_model_path = f"{finetuned_models_folder}/{src_model}_to_{tgt_model}_{horizon}.pth"
+            best_ft_model_path = ft_model_path.replace('.pth', '_best.pth')
 
             # Train further on target data (fine-tune)
             model, tr_loss, val_loss, elapsed_time = train(
@@ -261,12 +256,14 @@ def fine_tune_and_test(models_list: list[str], horizon: int, l_in: int,
                 verbose=True,
                 patience=patience,
                 patience_factor=patience_factor,
-                best_model_path=f"{finetuned_models_folder}/{src_model}_to_{tgt_model}_{horizon}_best.pth"
+                best_model_path=best_ft_model_path
             )
 
             # Save fine-tuned model
-            ft_path = f"{finetuned_models_folder}/{src_model}_to_{tgt_model}_{horizon}.pth"
-            save_model_weights(model, ft_path)
+            save_model_weights(model, ft_model_path)
+
+            model = construct_model(NT, hidden_size=128, num_layers=3)
+            model = load_model_weights(model, best_ft_model_path)
 
             # Evaluate on validation split (acts as held-out test here)
             y_pred = predict_batched(model, x_val, batch_size=128)
@@ -280,20 +277,9 @@ def fine_tune_and_test(models_list: list[str], horizon: int, l_in: int,
 # Run fine-tuning and plot results
 ft_matrix = fine_tune_and_test(models, horizon=5, l_in=L_IN,
                                train_ratio=0.01,
-                               initial_lr=4e-4,
-                               batch_size=128,
-                               num_epochs=30,
+                               initial_lr=2e-4,
+                               batch_size=64,
+                               num_epochs=60,
                                patience=10)
 
 plot_test_matrix(ft_matrix, models)
-
-#%%
-
-from pathlib import Path
-
-base_dir = Path(".").resolve() / "ch_pred_results"
-folder = base_dir / "FINAL_ch_pred_models_100hz_60steps_INTERP_10"
-csv_path = folder / "validation_losses-final.csv"
-
-out_path = folder / "validation_losses.png"
-plot_validation_losses_from_csv(csv_path, out_path, split_legend=True)
