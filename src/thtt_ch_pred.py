@@ -45,6 +45,7 @@ from nr_channel_predictor_wrapper import (
 )
 
 import pandas as pd
+from pathlib import Path
 
 NT = 2
 NR = 1
@@ -63,12 +64,13 @@ INTERP_FACTOR = 10  # final interpolated numbers of points
 # Note: if samples are 1m apart, and we want 10cm between points, 
 #       set INTERP_FACTOR = 102. 1 m / (102 - 2) = 10cm
 
-DATA_FOLDER = f'../data/ch_pred_data_{N_SAMPLES//1000}k_{MAX_DOOPLER}hz_{L}steps'
+ROOT = Path(__file__).parents[1]
+DATA_FOLDER = ROOT / f'../data/ch_pred_data_{N_SAMPLES//1000}k_{MAX_DOOPLER}hz_{L}steps'
 
 GPU_IDX = 0
 SEED = 42
 
-MODELS_FOLDER = f'../saved_models/ch_pred_models_{MAX_DOOPLER}hz_{L}steps_INTERP_{INTERP_FACTOR}'
+MODELS_FOLDER = ROOT /f'../saved_models/ch_pred_models_{MAX_DOOPLER}hz_{L}steps_INTERP_{INTERP_FACTOR}'
 os.makedirs(MODELS_FOLDER, exist_ok=True)
 
 models = ['TDL-A', 'CDL-C', 'UMa', f'asu_campus_3p5_10cm_interp_{INTERP_FACTOR}']
