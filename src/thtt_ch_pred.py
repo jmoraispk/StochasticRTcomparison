@@ -73,7 +73,8 @@ os.makedirs(MODELS_FOLDER, exist_ok=True)
 
 models = ['TDL-A', 'CDL-C', 'UMa', f'asu_campus_3p5_10cm_interp_{INTERP_FACTOR}']
 
-L_IN = 20  # input sequence length
+L_IN = 10  # input sequence length
+L_OUT = 5  # output gap length
 
 #%% [PYTORCH ENVIRONMENT] Train models
 
@@ -187,7 +188,7 @@ plt.show()
 #%% Load models and test them on other datasets
 
 # Run cross-testing over all defined models
-results_matrix = compute_nmse_matrix(models, horizon=5, l_in=L_IN,
+results_matrix = compute_nmse_matrix(models, horizon=L_OUT, l_in=L_IN,
                                      models_folder=MODELS_FOLDER,
                                      data_folder=DATA_FOLDER,
                                      num_tx_antennas=NT)
@@ -283,3 +284,5 @@ ft_matrix = fine_tune_and_test(models, horizon=5, l_in=L_IN,
                                patience=10)
 
 plot_test_matrix(ft_matrix, models)
+
+# %%
