@@ -80,7 +80,7 @@ L_OUT = 5  # output gap length
 
 #%% [PYTORCH ENVIRONMENT] Train models
 
-horizons = [1, 3, 5, 10, 20, 40]
+horizons = [1, 3, 5]#, 10, 20, 40]
 
 val_loss_per_horizon_gru = {model: [] for model in models}
 val_loss_per_horizon_gru_best = {model: [] for model in models}
@@ -278,12 +278,15 @@ def fine_tune_and_test(models_list: list[str], horizon: int, l_in: int,
 
 
 # Run fine-tuning and plot results
-ft_matrix = fine_tune_and_test(models, horizon=5, l_in=L_IN,
+ft_matrix = fine_tune_and_test(models, horizon=L_OUT, l_in=L_IN,
                                train_ratio=0.01,
                                initial_lr=2e-4,
                                batch_size=64,
                                num_epochs=60,
                                patience=10)
+
+eye_idxs = np.eye(ft_matrix.shape[0], dtype=bool)
+ft_matrix[eye_idxs] = results_matrix[eye_idxs]
 
 plot_test_matrix(ft_matrix, models)
 
