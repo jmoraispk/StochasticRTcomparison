@@ -245,28 +245,14 @@ data_cfg = DataConfig(
     seed = SEED
 )
 
-model = 'CDL-C'
+models = ['TDL-A', 'CDL-C', 'UMa']   # models to generate data for
+
 config = data_cfg
 
 fc = 3.5e9 # [Hz]
 speed = MAX_DOOPLER / (fc / 3e8) # E.g. at 3 m/s & 3.5 GHz, max Doppler = 37 Hz
 
-print(f"Generating stochastic data for {model}...")
-ch_gen = SionnaChannelGenerator(num_prbs=config.n_prbs,
-                                channel_name=model,
-                                batch_size=config.batch_size,
-                                n_rx=config.n_rx,
-                                n_tx=config.n_tx,
-                                normalize=False,
-                                seed=config.seed,
-                                ue_speed=speed, # [m/s]
-                                delay_spread=300e-9, # [s]
-                                frequency=fc, # [Hz]
-                                subcarrier_spacing=15e3) # [Hz]
-
-#%% [SIONNA ENV] Stochastic data generation: Generate channel data
-
-def channel_sample(batch_size=1000, num_time_steps=10, sampling_frequency=1e3):
+def channel_sample(ch_gen, model, batch_size=1000, num_time_steps=10, sampling_frequency=1e3):
     """Sample channel coefficients and delays.
     
     Args:
@@ -296,26 +282,40 @@ def channel_sample(batch_size=1000, num_time_steps=10, sampling_frequency=1e3):
 
     return H  # [batch size, num_rx_ant, num_tx_ant, num_time_steps]
 
-# Generate channel data
-H = np.zeros((config.n_samples, data_cfg.n_rx, data_cfg.n_tx, data_cfg.n_time_steps), dtype=np.complex64)
+for model in models:
+    print(f"Generating stochastic data for {model}...")
+    ch_gen = SionnaChannelGenerator(num_prbs=config.n_prbs,
+                                    channel_name=model,
+                                    batch_size=config.batch_size,
+                                    n_rx=config.n_rx,
+                                    n_tx=config.n_tx,
+                                    normalize=False,
+                                    seed=config.seed,
+                                    ue_speed=speed, # [m/s]
+                                    delay_spread=300e-9, # [s]
+                                    frequency=fc, # [Hz]
+                                    subcarrier_spacing=15e3) # [Hz]
 
-b = config.batch_size
-pbar = tqdm(range(config.n_samples // b), desc="Generating channel data")
-for i in pbar:
-    H[i*b:(i+1)*b] = channel_sample(b, config.n_time_steps, config.samp_freq)
+    # Generate channel data
+    H = np.zeros((config.n_samples, data_cfg.n_rx, data_cfg.n_tx, data_cfg.n_time_steps), dtype=np.complex64)
 
-print(f"H.shape: {H.shape}")
+    b = config.batch_size
+    pbar = tqdm(range(config.n_samples // b), desc="Generating channel data")
+    for i in pbar:
+        H[i*b:(i+1)*b] = channel_sample(ch_gen, model, b, config.n_time_steps, config.samp_freq)
 
-# Plot H for specific antennas 
-plot_sample_idx, plot_rx_idx = plot_iq_from_H(H)
+    print(f"H.shape: {H.shape}")
 
-# Unified post-processing and saving
-H_norm, H_noisy_norm, h_max = process_and_save_channel(
-    H_complex=H,
-    time_axis=-1,
-    data_folder=DATA_FOLDER,
-    model=model,
-    snr_db=SNR
-)
+    # Plot H for specific antennas 
+    plot_sample_idx, plot_rx_idx = plot_iq_from_H(H)
 
-plot_iq_from_H(H / h_max, plot_sample_idx, plot_rx_idx)
+    # Unified post-processing and saving
+    H_norm, H_noisy_norm, h_max = process_and_save_channel(
+        H_complex=H,
+        time_axis=-1,
+        data_folder=DATA_FOLDER,
+        model=model,
+        snr_db=SNR
+    )
+
+    plot_iq_from_H(H / h_max, plot_sample_idx, plot_rx_idx)
