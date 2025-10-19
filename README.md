@@ -40,13 +40,17 @@ Recommended execution: Install jupyter extension in VSCode/Cursor and execute on
 
 **Important:** For data generation, activate the ENV1 (w/ Sionna). For training, activate ENV2 (w/ PyTorch).
 
-### Channel Compression & Topology
+### (optional) Task 0: Topology
 1. Configure data generation parameters in `data_gen.py` (`DataConfig`)
 2. Generate/load data using `load_data_matrices()`
-3. (optional) Visualize data topology using `topology/topology.py`
+3. Visualize data topology using `topology/topology.py`
 4. Train and test compression models via `thtt.py`
 
-### Channel Prediction
+### Task 1: Channel Compression
+1. Generate data by running `thtt_data_gen.py`
+2. Train and test model with `thtt.py`
+
+### Task 2: Channel Prediction
 1. Run data generation `thtt_ch_pred_data_gen.py`
 2. Run temporal prediction via `thtt_ch_pred.py`
 
