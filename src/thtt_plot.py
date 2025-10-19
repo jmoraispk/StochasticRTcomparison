@@ -67,17 +67,22 @@ def plot_test_matrix(
     text_font: int = 10,
     label_font: int = 11,
     title: Optional[str] = None,
+    db_labels: bool = True,
+    center_x_labels: bool = False,
 ) -> plt.Axes:
     """
     Plot NMSE matrix (in dB) as a heatmap. If ax is provided, draw there and DO NOT add a colorbar.
     Returns the axes used (and you can grab its 'images[-1]' as the mappable).
+    
+    Args:
+        center_x_labels: If True, center the x-axis labels instead of right-aligning them.
     """
     own_fig = False
     if ax is None:
         fig, ax = plt.subplots(figsize=(6, 5), dpi=200)
         own_fig = True
 
-    M_db = 10 * np.log10(results_matrix)
+    M_db = 10 * np.log10(results_matrix) if db_labels else results_matrix
     if vmin_db is None:
         vmin_db = float(np.nanmin(M_db))
     if vmax_db is None:
@@ -100,7 +105,8 @@ def plot_test_matrix(
 
     ax.set_xticks(np.arange(len(models)))
     ax.set_yticks(np.arange(len(models)))
-    ax.set_xticklabels(models, rotation=35, ha="right", fontsize=tick_font)
+    ha_align = "center" if center_x_labels else "right"
+    ax.set_xticklabels(models, rotation=35, ha=ha_align, fontsize=tick_font)
     ax.set_yticklabels(models, fontsize=tick_font)
     if title:
         ax.set_title(title, fontsize=label_font)
