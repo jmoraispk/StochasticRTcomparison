@@ -17,6 +17,12 @@ import pickle
 import numpy as np
 import pandas as pd
 
+
+from model_config import ModelConfig
+from thtt_utils import train_models, cross_test_models
+from thtt_plot import (plot_training_results, plot_test_matrix, 
+                       plot_pretraining_comparison)
+
 # Data paths
 DATA_FOLDER = 'data'
 MATRIX_NAME = 'data_matrices_50k_complex_all2.pkl'
@@ -30,40 +36,11 @@ models = rt_scens + ch_models
 NT = 32
 NC = 16
 
-def pickle_save(data, path):
-    with open(path, 'wb') as f:
-        pickle.dump(data, f)
-        
 def pickle_load(path):
     with open(path, 'rb') as f:
         return pickle.load(f)
 
-#%% [SIONNA ENV] Load and Prepare Data
-
-from data_gen import DataConfig, load_data_matrices
-
-# Configure data generation
-data_cfg = DataConfig(
-    n_samples = 50_000,
-    n_prbs = 20,
-    n_rx = 1,
-    n_tx = NT,
-    snr = 50,
-    normalize = 'dataset-mean-var-complex',
-)
-
-# UMAP parameters
-data_cfg.x_points = data_cfg.n_samples #int(2e5)  # Number of points to sample from each dataset (randomly)
-data_cfg.seed = 42  # Set to None to keep random
-data_cfg.rt_uniform_steps = [3, 3] if data_cfg.n_samples <= 10_000 else [1, 1]
-data_cfg.rt_sample_trimming = False  # to enforce same number of samples for all models
-
-# Load data
-data_matrices = load_data_matrices(models, data_cfg)
-
-#%% [SIONNA ENV] Save matrices
-os.makedirs(DATA_FOLDER, exist_ok=True)
-pickle_save(data_matrices, MAT_PATH)
+results_folder = './results4'
 
 #%% [PYTORCH ENV] Load matrices
 
@@ -73,11 +50,6 @@ models = list(data_matrices.keys())
 
 #%% [PYTORCH ENV] Create Base Configuration
 
-
-from model_config import ModelConfig
-from thtt_utils import train_models, cross_test_models
-from thtt_plot import (plot_training_results, plot_test_matrix, 
-                       plot_pretraining_comparison)
 
 # Create base model configuration
 base_config = ModelConfig(
@@ -121,6 +93,8 @@ df = df.round(1)
 print("\nBase Model Test Results (NMSE in dB):")
 print("==========================")
 print(df.to_string())
+df.to_csv(results_folder + '/base_model_test_results.csv')
+print(f"Saved base model test results to {results_folder}/base_model_test_results.csv")
 
 #%% [PYTORCH ENV] Cross-fine-tune
 
@@ -220,7 +194,6 @@ print(df.to_string())
 
 #%% [PYTORCH ENV] Compare pre-trained vs non-pre-trained models
 
-results_folder = './results4'
 # Configuration
 data_percents = [0.5, 1, 5, 10, 40, 80]  # Percentages of training data to use
 models = ['asu_campus_3p5', 'city_0_newyork_3p5', 'CDL-C', 'UMa']
@@ -335,7 +308,6 @@ pretrained_models = models[1:]  # Models to use for pre-training
 
 n_samples = data_matrices[base_model].shape[0]
 
-results_folder = './results4'
 # Gather all result matrices
 results_matrix_db = np.zeros((len(data_percents), len(models)))
 for perc_idx, data_percent in enumerate(data_percents):
@@ -363,12 +335,10 @@ print(df.round(1).to_string())
 
 # Save results matrix
 os.makedirs(results_folder, exist_ok=True)
-# np.save(results_folder + '/pretraining_results.npy', results_matrix_db)
+np.save(results_folder + '/pretraining_results.npy', results_matrix_db)
 
 #%% Plot results for publication
 
-# np.save(results_folder + '/pretraining_results.npy', results_matrix_db
-results_folder = './ch_compression_results/results4'
 results_path = results_folder + '/pretraining_results.npy'
 results_matrix_db = np.load(results_path)
 
@@ -377,7 +347,6 @@ data_percents = [0.5, 1, 5, 10, 40, 90]  # Percentages of training data to use
 # Calculate number of points for each percentage
 n_points = [int(round(n_samples * p / 100, -2)) for p in data_percents]
 
-#%%
 # Plot performance comparison with datapoints
 plot_pretraining_comparison(
     x_values=n_points, # data_percents,
@@ -392,4 +361,4 @@ plot_pretraining_comparison(
 )
 
 
-# %%
+
