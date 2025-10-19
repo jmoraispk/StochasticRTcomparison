@@ -205,6 +205,9 @@ results_matrix = compute_nmse_matrix(models, horizon=L_OUT, l_in=L_IN,
                                      data_folder=DATA_FOLDER,
                                      num_tx_antennas=NT)
 
+np.save(f'{MODELS_FOLDER}/results_matrix.npy', results_matrix)
+print(f"Saved results matrix to {MODELS_FOLDER}/results_matrix.npy")
+
 # Plot confusion matrix (NMSE in dB inside the function)
 # plot_test_matrix(results_matrix, models)
 plot_test_matrix(results_matrix, model_names)
@@ -298,7 +301,7 @@ ft_matrix = fine_tune_and_test(models, horizon=L_OUT, l_in=L_IN,
 
 eye_idxs = np.eye(ft_matrix.shape[0], dtype=bool)
 ft_matrix[eye_idxs] = results_matrix[eye_idxs]
+np.save(f'{MODELS_FOLDER}/ft_matrix.npy', ft_matrix)
+print(f"Saved fine-tuning matrix to {MODELS_FOLDER}/ft_matrix.npy")
 
 plot_test_matrix(ft_matrix, model_names)
-
-# %%
