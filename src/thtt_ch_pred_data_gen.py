@@ -65,13 +65,14 @@ DATA_FOLDER = f'../data/ch_pred_data_{N_SAMPLES//1000}k_{MAX_DOOPLER}hz_{L}steps
 GPU_IDX = 0
 SEED = 42
 
+RT_SCENARIO = 'asu_campus_3p5_10cm'
+
 #%% [ANY ENV] 1. Ray tracing data generation: Load data
 
 matrices = ['rx_pos', 'tx_pos', 'aoa_az', 'aod_az', 'aoa_el', 'aod_el', 
             'delay', 'power', 'phase', 'inter']
 
-dataset = dm.load('asu_campus_3p5_10cm', matrices=matrices)
-# dataset = dm.load('asu_campus_3p5', matrices=matrices)
+dataset = dm.load(RT_SCENARIO, matrices=matrices)
 
 #%% [ANY ENV] (optional) Ray tracing data: Make video of all sequences
 
@@ -220,7 +221,7 @@ H_norm, H_noisy_norm, h_max = process_and_save_channel(
     H_complex=H_seq,
     time_axis=1,
     data_folder=DATA_FOLDER,
-    model='asu_campus_3p5_10cm' + (f'_interp_{INTERP_FACTOR}' if INTERPOLATE else ''),
+    model=RT_SCENARIO + (f'_interp_{INTERP_FACTOR}' if INTERPOLATE else ''),
     snr_db=SNR
 )
 
