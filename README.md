@@ -50,10 +50,13 @@ Recommended execution: Install jupyter extension in VSCode/Cursor and execute on
 1. Generate data by running `thtt_data_gen.py`
 2. Train and test model with `thtt.py`
 
+Note: Ensure parameters match between the 2 files.
+
 ### Task 2: Channel Prediction
 1. Run data generation `thtt_ch_pred_data_gen.py`
 2. Run temporal prediction via `thtt_ch_pred.py`
 
+Note: Ensure parameters match between the 2 files.
 
 ### Extra Models
 We also include 2 transformer models, one for each task:
