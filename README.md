@@ -2,7 +2,12 @@
 
 This project compares stochastic channel models with ray tracing models using UMAP visualization and machine learning techniques. It includes data generation (Sionna and DeepMIMO), topology analysis (UMAP via cuML), channel compression with autoencoders, and temporal channel prediction models.
 
-[Video](https://youtu.be/Fu_yctN8n70)
+**Asilomar 2025 Presentation** ([link](https://www.youtube.com/watch?v=Fu_yctN8n70))
+
+<a href="https://www.youtube.com/watch?v=Fu_yctN8n70" target="_blank" rel="noopener noreferrer">
+  <img src="https://img.youtube.com/vi/Fu_yctN8n70/maxresdefault.jpg" alt="Watch on YouTube" width="480">
+</a>
+
 
 ## Install Dependencies
 
